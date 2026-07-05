@@ -37,8 +37,9 @@ Usage:
   npx @mlangroman/sdlc setup [options]     Set up the pipeline in the current directory
 
 Options:
-  --force, -f      Overwrite existing thoughts/AGENTS.md, root AGENTS.md, and skills
+  --force, -f      Overwrite existing thoughts/AGENTS.md, root AGENTS.md, skills, and agents
   --skip-skills    Do not install skills into .claude/skills/
+  --skip-agents    Do not install reviewer agents into .claude/agents/
   --skip-beads     Do not run bd init
 
 What setup does:
@@ -46,7 +47,8 @@ What setup does:
   2. Creates thoughts/{${THOUGHTS_SUBDIRS.join(',')}} + thoughts/AGENTS.md (+ CLAUDE.md symlink)
   3. Creates a root AGENTS.md (if missing) and a root CLAUDE.md → AGENTS.md symlink
   4. Installs the pipeline skills into .claude/skills/
-  5. Initializes beads (bd init), if bd is installed
+  5. Installs the reviewer agents (backend/frontend-code-reviewer) into .claude/agents/
+  6. Initializes beads (bd init), if bd is installed
 
 Skills can also be installed on their own, for any supported agent, via the skills CLI:
   npx skills add MJLang/sdlc
@@ -130,6 +132,21 @@ function setup() {
       ok(name);
     }
     console.log(`    ${c('90', 'other agents (cursor, codex, …): npx skills add MJLang/sdlc')}`);
+  }
+
+  if (!flags.has('--skip-agents')) {
+    head('reviewer agents → .claude/agents/');
+    const agentsDir = join(pkgRoot, 'template', 'agents');
+    mkdirSync(join(cwd, '.claude', 'agents'), { recursive: true });
+    for (const file of readdirSync(agentsDir)) {
+      const dest = join(cwd, '.claude', 'agents', file);
+      if (existsSync(dest) && !force) {
+        skip(`${file} exists (use --force to overwrite)`);
+        continue;
+      }
+      cpSync(join(agentsDir, file), dest);
+      ok(file.replace(/\.md$/, ''));
+    }
   }
 
   if (!flags.has('--skip-beads')) {

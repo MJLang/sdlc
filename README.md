@@ -53,9 +53,19 @@ Run inside your project directory:
 2. Creates `thoughts/{tickets,plans,designs,docs,reviews}/` and `thoughts/AGENTS.md`, with a `thoughts/CLAUDE.md → AGENTS.md` symlink
 3. Creates a starter root `AGENTS.md` (or adopts an existing root `CLAUDE.md` as `AGENTS.md`) and symlinks root `CLAUDE.md → AGENTS.md`
 4. Installs the nine skills into `.claude/skills/`
-5. Runs `bd init` if [beads](https://github.com/gastownhall/beads) is installed
+5. Installs the two reviewer agents into `.claude/agents/`
+6. Runs `bd init` if [beads](https://github.com/gastownhall/beads) is installed
 
-Flags: `--force` (overwrite existing files), `--skip-skills`, `--skip-beads`.
+Flags: `--force` (overwrite existing files), `--skip-skills`, `--skip-agents`, `--skip-beads`.
+
+## The reviewer agents
+
+The review phase is a contract, not a suggestion: `/implement` and `/chore` dispatch a reviewer whose report ends in a machine-checkable `Verdict:` line, persist it to `thoughts/reviews/`, and record `review: APPROVED sha=...` on the beads epic — which is the precondition `/land` verifies before merging. Two agents that speak this contract ship with the package (Claude Code subagents, installed by `setup` — the skills CLI installs skills only):
+
+- **backend-code-reviewer** — holds a backend diff to three bars: ticket intent, plan conformance (silent deviation is a MUST FIX), and repo consistency (harvests conventions from canonical siblings before judging; flags second-ways-of-doing-things, layering violations, speculative generality). Evidence-gated: every MUST FIX cites `file:line`.
+- **frontend-code-reviewer** — same three bars for UI work, with design-system consistency as the holistic check (tokens, component reuse, WCAG AA, responsive, anti-patterns). If the [impeccable](https://skills.sh) skill is installed it drives impeccable's audit and critique as its quality engine; otherwise it runs the equivalent checks from source and says so in the report.
+
+Both are read-only, run in enforcing mode (canon exists) or establishing mode (greenfield — precedent-setting choices are flagged for human ratification), and return MUST FIX / NIT findings. Map your targets to them in the **Reviewers** line of `thoughts/AGENTS.md`; if you configure no reviewer, `/implement` falls back to a general code-review subagent.
 
 ## After setup
 
@@ -81,6 +91,7 @@ skills/           one folder per skill (SKILL.md) — what `npx skills add` inst
 template/         files copied into your project by `setup`
   thoughts/AGENTS.md   the pipeline contract (workflow instructions)
   AGENTS.root.md       starter root AGENTS.md (beads conventions, session protocol)
+  agents/              backend/frontend-code-reviewer (→ .claude/agents/)
 bin/sdlc.mjs      the zero-dependency setup CLI
 ```
 

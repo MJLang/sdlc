@@ -27,7 +27,7 @@ The pipeline is **ticket → plan → implement → land**. This file describes 
 
 - **Targets:** `app` <!-- the areas of the repo work can land in, e.g. cms | jobs | web | utils for a monorepo, or a single name for a simple repo -->
 - **Quality gates:** `npm test` <!-- the command(s) that must pass after every implementation step, e.g. root `pnpm check` plus workspace test/typecheck scripts -->
-- **Reviewers:** general code review <!-- map targets to reviewer agents if you have them, e.g. cms|jobs|utils → backend-code-reviewer, web → frontend-code-reviewer -->
+- **Reviewers:** all targets → `backend-code-reviewer` <!-- map targets to the shipped reviewer agents, e.g. cms|jobs|utils → backend-code-reviewer, web → frontend-code-reviewer; UI targets should use frontend-code-reviewer -->
 - **Product docs:** `thoughts/docs/` <!-- where tickets ground their Summary; add your product/vision doc here -->
 - **Frontend constraints:** none <!-- e.g. "no new pages until the design system in apps/web is established; route UI design through impeccable" -->
 
