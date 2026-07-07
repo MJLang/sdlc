@@ -44,4 +44,5 @@ Land plan $ARGUMENTS. This is a human gate: it runs only on explicit user invoca
    git push origin --delete <plan-name>
    ```
 
-6. **Report:** the merge commit, statuses flipped, epic closed, cleanup done.
+6. **Capture durable insight** — if landing surfaced a non-obvious, repo-wide fact (a rebase/merge gotcha, a gate quirk, an environment footgun) that the next session would re-derive, promote it to a memory: `bd remember "<fact and its why>" --key <slug>`. Skip if nothing qualifies — keep memories few and high-signal. See the Memory guidance in the root `AGENTS.md`.
+7. **Report:** the merge commit, statuses flipped, epic closed, cleanup done.

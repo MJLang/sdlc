@@ -38,6 +38,16 @@ Repeat until every issue in the epic is closed. **Re-derive the issue set from b
 4. Gates pass → commit in the worktree (one commit per step: `step N: <title> (<issue-id>)`), `bd close <issue-id>`, and `git push` — every finished step is on the remote branch the moment it closes; a crashed session strands nothing.
 5. Blocked on something only a human can decide → flag it (`bd update <issue-id> --add-label human`), leave the issue open, and continue with other unblocked steps. If nothing else can proceed, stop and report.
 
+## Capture durable insight
+
+When a step surfaces a non-obvious fact that outlives this plan — a toolchain gotcha, *why* a gate or flag had to be set an unusual way, a setup/first-run footgun — promote it to a memory so the next session gets it at `bd prime`, not just whoever reads this issue's close-reason:
+
+```bash
+bd remember "<the fact and its why>" --key <slug>
+```
+
+This is separate from the issue close `--reason` (which records what happened in *this* step). Memories are the handful of facts worth carrying into *every* future session — keep them few and high-signal. See the Memory guidance in the root `AGENTS.md`.
+
 ## Review — once per plan, at the end
 
 1. Dispatch the reviewer mapped to the plan's `Target` in `thoughts/AGENTS.md` (Project Configuration) — both lanes' reviewers if the diff spans lanes; a thorough general code-review subagent if no reviewer is configured. Pass the ticket and plan paths.

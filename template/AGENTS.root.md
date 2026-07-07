@@ -4,6 +4,16 @@ This project uses **bd** (beads) for issue tracking — run `bd prime` for full 
 
 > **Architecture:** Issues live in a local Dolt DB (`.beads/dolt/`); sync uses `bd dolt push/pull` over `refs/dolt/data` on your git remote (separate from `refs/heads/*`). `.beads/issues.jsonl` is a passive export, not the source of truth — see [SYNC_CONCEPTS.md](https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md) for anti-patterns.
 
+## Memory (`bd remember`)
+
+Memories load into every session at `bd prime`, so they are for **durable, repo-wide facts that aren't in the code** and that the next session would otherwise re-derive the hard way: a toolchain gotcha, *why* a gate or flag is configured an unusual way, a setup/first-run footgun. Reach for one the moment you learn something non-obvious that outlives the current task — don't leave it buried in an issue's close `--reason`, which only the reader of that one issue ever sees.
+
+- **Do** capture: the reason a config looks "wrong but deliberate" (so nobody simplifies it back to broken), first-run footguns, tool-version quirks.
+- **Don't** capture: task or step state (that's issues), or anything a reader finds directly in the code, a close-reason, or product docs.
+- Keep them **few and high-signal** — every memory taxes every `bd prime`. Pass an explicit `--key <slug>` so re-running updates it in place: `bd remember "<fact and its why>" --key <slug>`. Search with `bd memories <keyword>`.
+
+Persistent knowledge goes here — **never** in a `MEMORY.md` file (those fragment across accounts).
+
 ## Folder Structure
 
 - Use the `thoughts/` folder to define work — the ticket → plan → implement → land pipeline is described in `thoughts/AGENTS.md`.
