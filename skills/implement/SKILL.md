@@ -1,5 +1,6 @@
 ---
 name: implement
+version: 0.2.0
 description: Implement an approved plan in its own git worktree — claim the beads epic, execute steps via subagents in dependency order, run quality gates per step, then one full code review. Use when a plan is approved and its beads epic exists.
 argument-hint: <plan number, e.g. 003>
 ---
@@ -40,25 +41,65 @@ Repeat until every issue in the epic is closed. **Re-derive the issue set from b
 
 ## Capture durable insight
 
-When a step surfaces a non-obvious fact that outlives this plan — a toolchain gotcha, *why* a gate or flag had to be set an unusual way, a setup/first-run footgun — promote it to a memory so the next session gets it at `bd prime`, not just whoever reads this issue's close-reason:
-
-```bash
-bd remember "<the fact and its why>" --key <slug>
-```
-
-This is separate from the issue close `--reason` (which records what happened in *this* step). Memories are the handful of facts worth carrying into *every* future session — keep them few and high-signal. See the Memory guidance in the root `AGENTS.md`.
+When a step surfaces a non-obvious fact that may outlive this plan — a toolchain gotcha, *why* a gate or flag had to be set an unusual way, a setup/first-run footgun — record it as a **memory candidate**. Do not write it as a memory yet: the completed implementation performs one audit after review, so stale or duplicate advice does not accumulate.
 
 ## Review — once per plan, at the end
 
-1. Dispatch the reviewer mapped to the plan's `Target` in `thoughts/AGENTS.md` (Project Configuration) — both lanes' reviewers if the diff spans lanes; a thorough general code-review subagent if no reviewer is configured. Pass the ticket and plan paths.
-2. Persist each round's full reviewer output verbatim to `thoughts/reviews/{NNN}-round{n}.md` inside the worktree and commit it — the review is an artifact that travels with the branch; its NITs are fodder for later chore tickets.
-3. MUST FIX findings → fix in the worktree, re-run gates, commit, re-review (next round, next file). Cap at 3 rounds; if still blocked, flag the epic (`bd update <epic-id> --add-label human`) and report.
-4. On APPROVED: commit the final review file first, then record the verdict against the resulting HEAD and push:
+1. **Derive the required reviewer set from the current diff.** Use the actual changed files (excluding prior `thoughts/reviews/` artifacts), not only the plan's declared `Target`. Dispatch every distinct reviewer mapped to the affected lanes in `thoughts/AGENTS.md` (Project Configuration). Use the shipped `general-code-reviewer` for each changed lane that has no configured reviewer; give every reviewer the ticket and plan paths plus its explicit lane/file scope. Deduplicate repeated reviewer names by giving that reviewer the union of its scopes. Recompute this set for every round. If a required named reviewer is unavailable, flag the epic `human` and stop; never substitute an anonymous reviewer whose verdict contract is unknown.
+2. **Run one review round against one HEAD.** Require a clean worktree, record the current code HEAD, and pass that expected SHA explicitly to every required reviewer. Run them against that exact HEAD (concurrently is fine because reviewers are read-only); do not edit or commit between reviewer runs. Each component result must contain exactly one standalone line matching one of `Verdict: BLOCKED — <positive n> MUST FIX`, `Verdict: APPROVED — <positive n> NIT`, or `Verdict: APPROVED`. Retry a missing, duplicate, or malformed verdict once against the same HEAD without consuming a round. If the configured reviewer still violates the contract, flag the epic `human` and stop; never silently replace a configured reviewer with the fallback or infer approval. After collecting valid results, re-read `HEAD` and `git status --short`. If the SHA changed or the worktree is no longer clean, discard every component result, resolve the unexpected state, and restart the same round; never aggregate reports from a mixed or moving HEAD.
+3. **Write one aggregate artifact.** In deterministic reviewer-name order, embed each component report verbatim under its own heading in `thoughts/reviews/{NNN}-round{n}.md`. Include the reviewed code HEAD and reviewer list at the top. End the file with an `## Overall` section and make its aggregate `Verdict:` the **final verdict line in the file**:
+   - if any component is blocked, sum their MUST FIX counts and emit `Verdict: BLOCKED — <n> MUST FIX`;
+   - otherwise, sum all NIT counts and emit `Verdict: APPROVED — <n> NIT`, or bare `Verdict: APPROVED` when the sum is zero.
+
+   Use this shape:
+
+   ```md
+   # Automated Review — <NNN> round <n>
+   Reviewed code SHA: <sha>
+   Reviewers: <comma-separated agent names>
+
+   ## <reviewer-name>
+   <component report verbatim>
+
+   ## Overall
+   - <reviewer-name>: <component verdict>
+
+   Verdict: <aggregate verdict>
+   ```
+
+   This last-line rule makes the artifact machine-readable even though it contains the component `Verdict:` lines. Commit **only** the aggregate artifact in the round commit; its complete findings and NITs travel with the branch.
+4. **Resolve a blocked round.** Fix every actionable MUST FIX in the worktree, re-run gates, and commit. Then start a new round against the new HEAD and rerun the **entire** required reviewer set; no approval carries across a code change. Cap at 3 completed aggregate rounds; if still blocked, flag the epic (`bd update <epic-id> --add-label human`) and report.
+5. **Record aggregate approval.** After the approved aggregate artifact is committed, record the overall verdict against the resulting HEAD and push:
 
    ```bash
    bd update <epic-id> --append-notes="review: APPROVED sha=<worktree HEAD sha> rounds=<n>"
    git push
    ```
+6. **Audit and maintain tagged memories.** Read the plan's `Tags`. For each tag, run `bd memories "tag:<tag>" --json`; this searches the memory's explicit index marker rather than matching incidental prose. Deduplicate the keys and `bd recall` every candidate returned. Audit each memory against the completed implementation and classify it:
+   - **Keep** when it remains accurate and useful.
+   - **Refresh** when its wording, evidence, or `Applies when` needs correction; update it in place with the same `--key`.
+   - **Merge** when two memories convey the same lesson; write the consolidated canonical memory first, then `bd forget <duplicate-key>`.
+   - **Forget** only when the implementation proves it false, obsolete, or superseded. Never forget a memory merely because this plan did not use it; if uncertain, keep it.
+
+   Then promote the high-signal memory candidates that survived the audit. Each memory needs 2–5 plain retrieval tags — include applicable plan tags and, when useful, `decision`, `footgun`, or `convention` — plus the fact, why it matters, when it applies, and its source:
+
+   ```bash
+   bd remember "Tags: <plan-tag>, <technology>, <decision|footgun|convention>
+   Index: tag:<plan-tag> tag:<technology> tag:<decision|footgun|convention>
+   Finding: <durable fact>
+   Why: <why it matters>
+   Applies when: <scope>
+   Source: plan <NNN>, commit <sha>" --key <stable-slug>
+   ```
+
+   Record the actions and affected keys on the epic, including an explicit `none` when nothing changed, then sync the Beads database:
+
+   ```bash
+   bd update <epic-id> --append-notes="memory audit: kept=<keys|none>; refreshed=<keys|none>; merged=<keys|none>; forgot=<keys|none>; added=<keys|none>"
+   bd dolt push
+   ```
+
+   This is separate from an issue close `--reason` (which records what happened in one step). Memories are the handful of facts worth carrying into future sessions — keep them few and high-signal. See the Memory guidance in the root `AGENTS.md`.
 
 ## Never
 
@@ -66,4 +107,4 @@ This is separate from the issue close `--reason` (which records what happened in
 - Never edit files outside the worktree. Plan and ticket frontmatter are untouched here; live progress lives in beads.
 - Never ask the user questions mid-run — use the `human` label and keep going where possible.
 
-**Report:** steps completed, gate results, review verdict, worktree path, and that `/land {NNN}` is the next (human) step.
+**Report:** steps completed, gate results, review verdict, and worktree path. When the review is approved, tell the user they can inspect it with `/review {NNN}` (or `sdlc review {NNN}`) before invoking `/land {NNN}`; `/land` remains the next human gate.

@@ -1,5 +1,6 @@
 ---
 name: queue
+version: 0.2.0
 description: Read-only dashboard of the ticket → plan → implement → land pipeline — what is in flight, what is stalled, and what awaits a human decision. Use when the user asks what needs them, what's in progress, or for overall pipeline status.
 ---
 
@@ -7,7 +8,7 @@ Build the pipeline dashboard. Strictly read-only — no mutations to files, bead
 
 ## Gather — delegate to a cheap subagent
 
-Spawn ONE read-only subagent (Explore, cheapest available model tier — this is mechanical parsing) to collect the snapshot below and return it as a compact table, no prose. Do not gather inline: delegation keeps this session's context clean.
+Spawn ONE read-only `pipeline-snapshot` subagent to collect the snapshot below and return it as a compact table, no prose. When installed through `sdlc setup`, this role uses Haiku in Claude Code and `gpt-5.6-luna` with medium reasoning effort in Codex. If the named profile or model is unavailable, use the runtime's cheapest available read-only subagent and include the fallback in the returned `Model` column. Do not gather inline: delegation keeps this session's context clean.
 
 1. Tickets: `Status` of every file in `thoughts/tickets/`.
 2. Plans: `Status` + `Beads Epic` of every file in `thoughts/plans/`.

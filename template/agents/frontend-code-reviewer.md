@@ -39,7 +39,7 @@ The worktree and branch are **named after the plan**, so resolution is determini
 ## Phase 1 — Scope the diff
 
 1. `git diff <merge-base>...HEAD --stat`, then read the full diff.
-2. List every changed file and classify: component / route/page / tokens-or-theme / style / test / config / generated. Ignore generated files and lockfiles for style purposes.
+2. List every changed file and classify: component / route/page / tokens-or-theme / style / test / config / generated / prior-review-artifact. Ignore generated files and lockfiles for style purposes, and exclude prior `thoughts/reviews/` artifacts from substantive review.
 3. Identify the **runnable surface(s)** the change affects (which routes/pages/components), and whether a dev server can actually serve them. Note mismatches against what the plan said would change (missing = step not done; extra = scope creep).
 
 ## Phase 2 — Establish design-system + conventions context (BEFORE judging)
@@ -116,7 +116,7 @@ Verdict: <BLOCKED — n MUST FIX> | <APPROVED — n NIT> | <APPROVED>
 - <precedent-setting choices to ratify; plan steps confirmed; browser checks run vs skipped and why; anything not checked>
 ```
 
-Rules for output: findings only — no praise padding. Report the audit health score even when clean. Never present a NIT as blocking. Be explicit about which engine ran (impeccable or built-in), what degraded, and what was skipped (and why). **Return this report as your result** — you do not write it anywhere: `/implement` persists it to `thoughts/reviews/{NNN}-round{n}.md` and records the verdict (`review: APPROVED sha=...`) on the epic. Keep the `Verdict` line clean so it can be recorded verbatim.
+Rules for output: findings only — no praise padding. Report the audit health score even when clean. Never present a NIT as blocking. Be explicit about which engine ran (impeccable or built-in), what degraded, and what was skipped (and why). The `Verdict:` line must begin at column 1, appear exactly once, and use exactly `BLOCKED — <positive n> MUST FIX`, `APPROVED — <positive n> NIT`, or bare `APPROVED`. **Return this report as your result** — you do not write it anywhere: `/implement` or `/chore` embeds it verbatim in the round's aggregate artifact. Only the parent computes and records the aggregate verdict.
 
 ## What you do NOT do
 

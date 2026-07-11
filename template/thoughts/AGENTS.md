@@ -11,6 +11,7 @@ The pipeline is **ticket → plan → implement → land**. This file describes 
 | `/plan <NNN>` | ticket `approved` → plan (`review`) | — |
 | `/approve <NNN>` | plan `review` → `approved`; creates beads epic + issues. Re-run on an approved plan = **amendment re-sync** | **human** |
 | `/implement <NNN>` | executes approved plan in its worktree; ends with a review verdict | — |
+| `/review <NNN>` | prepares an implemented worktree for local human inspection; does not merge | — |
 | `/land <NNN>` | merge to main; plan → `merged`, ticket → `implemented` | **human** |
 | `/chore <idea>` | lightweight lane: chore ticket → worktree → gates + one review → merge, in one pass | **human** |
 | `/cancel <NNN> [plan]` | cancel the line of work (or just the plan, to re-plan); closes epic, removes worktree | **human** |
@@ -27,9 +28,12 @@ The pipeline is **ticket → plan → implement → land**. This file describes 
 
 - **Targets:** `app` <!-- the areas of the repo work can land in, e.g. cms | jobs | web | utils for a monorepo, or a single name for a simple repo -->
 - **Quality gates:** `npm test` <!-- the command(s) that must pass after every implementation step, e.g. root `pnpm check` plus workspace test/typecheck scripts -->
-- **Reviewers:** all targets → `backend-code-reviewer` <!-- map targets to the shipped reviewer agents, e.g. cms|jobs|utils → backend-code-reviewer, web → frontend-code-reviewer; UI targets should use frontend-code-reviewer -->
+- **Reviewers:** all targets → `backend-code-reviewer` <!-- map targets to the shipped specialist reviewers, e.g. cms|jobs|utils → backend-code-reviewer, web → frontend-code-reviewer; an unmapped lane uses general-code-reviewer -->
 - **Product docs:** `thoughts/docs/` <!-- where tickets ground their Summary; add your product/vision doc here -->
 - **Frontend constraints:** none <!-- e.g. "no new pages until the design system in apps/web is established; route UI design through impeccable" -->
+- **Review editor:** <!-- optional, e.g. `code {worktree}`; used by `sdlc review <NNN> --editor` -->
+- **Local preview:** <!-- optional, e.g. `npm run dev -- --port {port}`; runs only with `sdlc review <NNN> --preview` -->
+- **Preview URL:** <!-- optional, e.g. `http://localhost:{port}` -->
 
 ## Tickets
 
@@ -42,7 +46,7 @@ Frontmatter Includes:
 - Status: 'draft' | 'approved' | 'implemented' | 'cancelled'
   - `draft` → `approved` is a human decision; it makes the ticket eligible for `/plan`.
   - `approved` → `implemented` is flipped by `/land` when the plan's worktree merges.
-- Tags: A list of tags associated with the ticket.
+- Tags: 2–5 stable, lowercase retrieval terms associated with the ticket, such as `db`, `postgres`, and `data`. Include the target name when useful. These retrieve relevant Beads memories during planning; they are not a complete keyword list.
 - Type: 'feature' | 'bug' | 'refactor' | 'chore'
 - Target: one of the targets defined in Project Configuration above
 
@@ -68,7 +72,7 @@ Frontmatter Includes:
 - Status: 'draft' | 'review' | 'approved' | 'merged' | 'cancelled'
   - `review` = awaiting human review. `review` → `approved` only via `/approve`; `approved` → `merged` only via `/land`.
   - There is deliberately no `in progress` status — live progress is a beads query, not frontmatter.
-- Tags: A list of tags associated with the ticket.
+- Tags: the ticket's stable retrieval tags, plus any planning-specific tags. They retrieve relevant Beads memories during planning and implementation.
 - Type: 'feature' | 'bug' | 'refactor' | 'chore'
 - Target: one of the targets defined in Project Configuration above
 - Ticket Origin: The ticket that this plan is associated with
@@ -80,7 +84,7 @@ Naming Conventions:
 
 ## Reviews
 
-Full review output is persisted verbatim to `thoughts/reviews/{NNN}-round{n}.md`, written inside the worktree during the review phase and merged to main at `/land` — the audit trail travels with the change. The machine-checked verdict (`review: APPROVED sha=...`) lives on the epic's notes; the file holds the complete findings, including NITs (fodder for later chore tickets).
+Each review round is persisted to one aggregate artifact at `thoughts/reviews/{NNN}-round{n}.md`, written inside the worktree and merged to main at `/land`. Every required component reviewer receives the same expected code SHA; the parent rechecks that SHA and a clean status before composing the artifact, so a moving worktree invalidates the round. The artifact records the reviewed code SHA, then embeds every component review verbatim in deterministic reviewer-name order. An `## Overall` section comes last, and its aggregate `Verdict:` is the final verdict line in the file. Overall approval requires every required reviewer to approve; otherwise the overall MUST FIX count is the sum of the blocked components. Missing, duplicate, or malformed component verdicts are retried once against the same HEAD and then escalated to a human without approval. The machine-checked approval (`review: APPROVED sha=...`) lives on the epic's notes and is recorded only after the approved aggregate artifact is committed.
 
 ## Implementation
 
@@ -93,4 +97,4 @@ After each step, the quality gates run inside the worktree: the gate commands in
 
 ## After Implementation
 
-One full code review per plan, at the end (not per step — the per-step check is the mechanical gates). The reviewer is dispatched by the plan's `Target` using the reviewer mapping in Project Configuration; both lanes' reviewers if the diff spans lanes, a thorough general code review if none is configured. MUST FIX findings are fixed and re-reviewed until APPROVED; each round is persisted to `thoughts/reviews/` and the verdict is recorded on the epic's notes (`review: APPROVED sha=...`), which is the precondition `/land` checks. Merging to main is `/land`, a human gate.
+One full review phase per plan, at the end (not per step — the per-step check is the mechanical gates). Reviewers are dispatched by the changed lanes using Project Configuration: every distinct mapped specialist required by a mixed diff, and the shipped `general-code-reviewer` for any unmapped lane. All component reviewers in a round inspect the same HEAD. Their reports are aggregated into one round artifact, and any non-approval blocks the aggregate verdict. MUST FIX findings are fixed and the entire required reviewer set reruns against the new HEAD until the aggregate is APPROVED. The approved verdict is then recorded on the epic's notes (`review: APPROVED sha=...`), which is the precondition `/land` checks. Once approved, `/review <NNN>` (or `sdlc review <NNN>`) resolves the worktree, diff, and aggregate artifact for local human inspection; it is read-only unless explicitly asked to open an editor/artifact or start a configured preview, and it records no approval. `/land` remains the human gate. After approval, `/implement` audits the Beads memories returned by the plan's tags: it keeps accurate memories, refreshes or merges changed advice, forgets only facts proven obsolete or superseded, and records any new high-signal tagged memories.

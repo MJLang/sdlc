@@ -1,5 +1,6 @@
 ---
 name: cancel
+version: 0.2.0
 description: Human gate — cancel a line of work (ticket + plan + epic + worktree), or just the plan to re-plan against the same ticket.
 argument-hint: <number> [plan]
 disable-model-invocation: true

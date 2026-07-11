@@ -1,5 +1,6 @@
 ---
 name: land
+version: 0.2.0
 description: Human gate — merge an implemented plan's worktree into main, flip plan/ticket statuses, close the beads epic, clean up, and push.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true
@@ -12,7 +13,7 @@ Land plan $ARGUMENTS. This is a human gate: it runs only on explicit user invoca
 1. The plan exists with `Status: approved` and `Beads Epic:` set; the worktree `.worktrees/<plan-name>` exists.
 2. Every issue in the epic is closed. Open `human`-labeled issues block landing unless the user explicitly waives them — list them and confirm.
 3. The epic's notes contain `review: APPROVED sha=<sha>`, and that sha either equals the worktree's current HEAD or is connected to it by an unbroken chain of `rebased: <old>→<new> gates=pass` notes (written in step 1). Any other commits after the verdict mean the review phase of `/implement` must re-run first.
-4. The review artifact exists in the worktree: `thoughts/reviews/{NNN}-round*.md`.
+4. The latest review artifact exists in the worktree as `thoughts/reviews/{NNN}-round<n>.md`. For an aggregate artifact, validate the reviewer header and every component's exact verdict, recompute the summed overall result, and require it to match the final `## Overall` verdict. That overall must be exactly `Verdict: APPROVED` or `Verdict: APPROVED — <positive n> NIT`; any blocked component therefore blocks landing even if the written overall line is wrong. For a legacy single-reviewer artifact with no `## Overall`, apply the same grammar to its last standalone verdict. A missing, malformed, inconsistent, or blocked artifact refuses landing even if an epic note was written incorrectly.
 
 ## Steps
 
@@ -44,5 +45,5 @@ Land plan $ARGUMENTS. This is a human gate: it runs only on explicit user invoca
    git push origin --delete <plan-name>
    ```
 
-6. **Capture durable insight** — if landing surfaced a non-obvious, repo-wide fact (a rebase/merge gotcha, a gate quirk, an environment footgun) that the next session would re-derive, promote it to a memory: `bd remember "<fact and its why>" --key <slug>`. Skip if nothing qualifies — keep memories few and high-signal. See the Memory guidance in the root `AGENTS.md`.
+6. **Capture durable insight** — if landing surfaced a non-obvious, repo-wide fact (a rebase/merge gotcha, a gate quirk, an environment footgun) that the next session would re-derive, use the plan's tags and the structured tagged-memory format in `AGENTS.md`. Do not add an untagged memory; if one is written, run `bd dolt push` again so it syncs. Skip if nothing qualifies — keep memories few and high-signal.
 7. **Report:** the merge commit, statuses flipped, epic closed, cleanup done.

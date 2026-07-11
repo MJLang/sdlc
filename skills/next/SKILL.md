@@ -1,5 +1,6 @@
 ---
 name: next
+version: 0.2.0
 description: Autonomous loop dispatcher — perform exactly one legal pipeline transition (plan an approved ticket, or implement an approved plan) and queue the human gates. Designed to be driven by /loop.
 disable-model-invocation: true
 ---
@@ -8,7 +9,7 @@ Run ONE iteration of the ticket → plan → implement pipeline (`thoughts/AGENT
 
 ## Derive state — from disk and beads only, never from memory of past sessions
 
-Spawn ONE read-only subagent (Explore, cheapest available model tier — mechanical parsing) to collect the snapshot and return it as a compact table, no prose. Do not gather inline: in loop mode this runs every iteration, and the driver's context must stay small for the `/implement` that may follow.
+Spawn ONE read-only `pipeline-snapshot` subagent to collect the snapshot and return it as a compact table, no prose. When installed through `sdlc setup`, this role uses Haiku in Claude Code and `gpt-5.6-luna` with medium reasoning effort in Codex. If the named profile or model is unavailable, use the runtime's cheapest available read-only subagent and include the fallback in the returned `Model` column. Do not gather inline: in loop mode this runs every iteration, and the driver's context must stay small for the `/implement` that may follow.
 
 1. Plans: `Status` + `Beads Epic` of every file in `thoughts/plans/`.
 2. Tickets: `Status` of every file in `thoughts/tickets/`.

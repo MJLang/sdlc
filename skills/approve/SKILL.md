@@ -1,5 +1,6 @@
 ---
 name: approve
+version: 0.2.0
 description: Human gate — approve a reviewed plan (creates its beads epic + step issues), or re-sync an amended, already-approved plan into its epic.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true

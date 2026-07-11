@@ -41,7 +41,7 @@ The worktree and branch are **named after the plan**, so resolution is determini
 ## Phase 1 — Scope the diff
 
 1. `git diff <merge-base>...HEAD --stat`, then read the full diff.
-2. List every changed file and classify each: backend-in-lane / frontend / config / generated. Ignore generated and lockfiles for style purposes.
+2. List every changed file and classify each: backend-in-lane / frontend / config / generated / prior-review-artifact. Ignore generated files and lockfiles for style purposes, and exclude prior `thoughts/reviews/` artifacts from substantive review.
 3. Note what the plan said would change, and whether the set of changed files matches — missing files (plan step not done) and unexpected files (scope creep) both matter later.
 
 ## Phase 2 — Harvest conventions (BEFORE you judge anything)
@@ -109,7 +109,7 @@ Verdict: <BLOCKED — n MUST FIX> | <APPROVED — n NIT> | <APPROVED>
 - <precedent-setting choices ratified in establishing mode; plan steps confirmed done; anything not checked>
 ```
 
-Rules for the output: findings only — no praise padding. If there are zero MUST FIX, say so plainly. Never present a NIT as blocking. If you could not resolve the ticket/plan, say exactly what you did and did not check. **Return this report as your result** — you do not write it anywhere: `/implement` persists it to `thoughts/reviews/{NNN}-round{n}.md` and records the verdict (`review: APPROVED sha=...`) on the epic. Keep the `Verdict` line clean so it can be recorded verbatim.
+Rules for the output: findings only — no praise padding. If there are zero MUST FIX, say so plainly. Never present a NIT as blocking. If you could not resolve the ticket/plan, say exactly what you did and did not check. The `Verdict:` line must begin at column 1, appear exactly once, and use exactly `BLOCKED — <positive n> MUST FIX`, `APPROVED — <positive n> NIT`, or bare `APPROVED`. **Return this report as your result** — you do not write it anywhere: `/implement` or `/chore` embeds it verbatim in the round's aggregate artifact. Only the parent computes and records the aggregate verdict.
 
 ## What you do NOT do
 

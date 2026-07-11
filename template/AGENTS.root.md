@@ -10,7 +10,19 @@ Memories load into every session at `bd prime`, so they are for **durable, repo-
 
 - **Do** capture: the reason a config looks "wrong but deliberate" (so nobody simplifies it back to broken), first-run footguns, tool-version quirks.
 - **Don't** capture: task or step state (that's issues), or anything a reader finds directly in the code, a close-reason, or product docs.
-- Keep them **few and high-signal** — every memory taxes every `bd prime`. Pass an explicit `--key <slug>` so re-running updates it in place: `bd remember "<fact and its why>" --key <slug>`. Search with `bd memories <keyword>`.
+- Keep them **few and high-signal** — every memory taxes every `bd prime`. Beads does not have a native memory-tag field, so put 2–5 stable, plain retrieval tags in the memory content. Reuse the ticket or plan tags where they apply (for example: `db`, `postgres`, `data`), then add `decision`, `footgun`, or `convention` only when useful. Mirror every tag in an `Index:` line as `tag:<tag>` (for example, `tag:db tag:postgres tag:footgun`). Search each tag with `bd memories "tag:<tag>" --json`, then inspect a candidate with `bd recall <key>`. The index prevents an incidental prose match such as `data` matching `database`.
+- Use one explicit, stable `--key <slug>` per insight. Re-running `bd remember` with that key updates the memory in place; it does not add another value. Store memories in this format:
+
+  ```text
+  Tags: db, postgres, footgun
+  Index: tag:db tag:postgres tag:footgun
+  Finding: <durable fact>
+  Why: <why it matters>
+  Applies when: <scope>
+  Source: plan <NNN>, commit <sha>
+  ```
+
+- After an implementation's review is approved, audit memories returned by that work's tags: keep accurate memories, refresh changed advice, merge duplicates (write the canonical memory before forgetting duplicates), and `bd forget <key>` only for facts proven false, obsolete, or superseded. Do not forget a memory merely because the current work did not use it; keep it when uncertain. Record the audit on the associated Beads epic or chore task.
 
 Persistent knowledge goes here — **never** in a `MEMORY.md` file (those fragment across accounts).
 
