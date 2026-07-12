@@ -6,8 +6,8 @@
  *   npx @mlangroman/sdlc setup [--claude|--codex] [--force] [--skip-skills] [--skip-beads]
  */
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import net from 'node:net';
@@ -73,7 +73,7 @@ What setup does:
   1. git init (if not already a repository)
   2. Creates thoughts/{${THOUGHTS_SUBDIRS.join(',')}} + thoughts/AGENTS.md (+ CLAUDE.md symlink)
   3. Creates a root AGENTS.md (if missing) and a root CLAUDE.md → AGENTS.md symlink
-  4. Installs pipeline skills into .claude/skills/ (Claude) or .agents/skills/ (Codex)
+  4. Installs pipeline skills into .agents/skills/ (symlinked into .claude/skills/ for Claude)
   5. Installs three code reviewers plus pipeline-snapshot into .claude/agents/ (Claude) or .codex/agents/ (Codex)
   6. Initializes beads (bd init), if bd is installed
 
@@ -356,6 +356,26 @@ function linkClaudeMd(dir, label) {
   }
 }
 
+function linkSkill(claudeSkillsDir, agentsSkillsDir, name) {
+  const link = join(claudeSkillsDir, name);
+  const target = join(agentsSkillsDir, name);
+  const existing = lstatSync(link, { throwIfNoEntry: false });
+  if (existing && !force) {
+    skip(`${name} exists (use --force to overwrite)`);
+    return;
+  }
+  if (existing) rmSync(link, { recursive: true, force: true });
+  // Relative link so the pair survives the project being moved or checked out elsewhere.
+  const rel = relative(claudeSkillsDir, target);
+  try {
+    symlinkSync(rel, link);
+    ok(`${name} → ${rel}`);
+  } catch {
+    cpSync(target, link, { recursive: true, force: true });
+    warn(`${name} copied (symlinks unavailable on this system)`);
+  }
+}
+
 function copyIfMissing(src, dest, label) {
   if (existsSync(dest) && !force) {
     skip(`${label} exists (use --force to overwrite)`);
@@ -444,22 +464,31 @@ function setup() {
   linkClaudeMd(cwd, '.');
 
   if (!flags.has('--skip-skills')) {
-    const skillTargets = [
-      ...(installClaude ? [{ label: 'skills → .claude/skills/', dir: join(cwd, '.claude', 'skills') }] : []),
-      ...(installCodex ? [{ label: 'skills → .agents/skills/', dir: join(cwd, '.agents', 'skills') }] : []),
-    ];
-    for (const target of skillTargets) {
-      head(target.label);
-      for (const name of readdirSync(SKILLS_DIR)) {
-        const src = join(SKILLS_DIR, name);
-        const dest = join(target.dir, name);
-        if (existsSync(dest) && !force) {
-          skip(`${name} exists (use --force to overwrite)`);
-          continue;
-        }
-        mkdirSync(dest, { recursive: true });
-        cpSync(src, dest, { recursive: true, force: true });
-        ok(name);
+    // Skills live canonically in .agents/skills/ for every target. The Claude
+    // target additionally symlinks each skill into .claude/skills/ so Claude and
+    // Codex share one copy on disk.
+    const agentsSkillsDir = join(cwd, '.agents', 'skills');
+    const skillNames = readdirSync(SKILLS_DIR);
+
+    head('skills → .agents/skills/');
+    for (const name of skillNames) {
+      const src = join(SKILLS_DIR, name);
+      const dest = join(agentsSkillsDir, name);
+      if (existsSync(dest) && !force) {
+        skip(`${name} exists (use --force to overwrite)`);
+        continue;
+      }
+      mkdirSync(dest, { recursive: true });
+      cpSync(src, dest, { recursive: true, force: true });
+      ok(name);
+    }
+
+    if (installClaude) {
+      head('skills → .claude/skills/ (symlinked to .agents/skills/)');
+      const claudeSkillsDir = join(cwd, '.claude', 'skills');
+      mkdirSync(claudeSkillsDir, { recursive: true });
+      for (const name of skillNames) {
+        linkSkill(claudeSkillsDir, agentsSkillsDir, name);
       }
     }
   }

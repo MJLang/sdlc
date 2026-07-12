@@ -55,7 +55,7 @@ Run inside your project directory:
 1. `git init` if the directory is not a repository (the pipeline needs branches and worktrees)
 2. Creates `thoughts/{tickets,plans,designs,docs,reviews}/` and `thoughts/AGENTS.md`, with a `thoughts/CLAUDE.md → AGENTS.md` symlink
 3. Creates a starter root `AGENTS.md` (or adopts an existing root `CLAUDE.md` as `AGENTS.md`) and symlinks root `CLAUDE.md → AGENTS.md`
-4. Installs the ten skills into `.claude/skills/` for Claude Code or `.agents/skills/` for Codex
+4. Installs the ten skills into `.agents/skills/`; for Claude Code each skill is then symlinked into `.claude/skills/` so both agents share one copy
 5. Installs the three code-reviewer agents plus the `pipeline-snapshot` agent into `.claude/agents/` for Claude Code or `.codex/agents/` for Codex
 6. Runs `bd init` if [beads](https://github.com/gastownhall/beads) is installed
 
