@@ -7,10 +7,14 @@
  */
 
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import net from 'node:net';
+import { createSessionActor, inspectBeadsInstallation, repositorySessionActor } from '../lib/beads.mjs';
+import { doctorExitCode, formatDoctor, inspectDoctor } from '../lib/doctor.mjs';
+import { fingerprintFile, formatFingerprint } from '../lib/fingerprint.mjs';
+import { parseReviewArtifact } from '../lib/review-artifact.mjs';
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cwd = process.cwd();
@@ -36,6 +40,7 @@ const CODEX_AGENT_MODELS = {
   'backend-code-reviewer': 'gpt-5.6',
   'frontend-code-reviewer': 'gpt-5.6',
   'general-code-reviewer': 'gpt-5.6',
+  'plan-reviewer': 'gpt-5.6',
   // This role is mechanical fact gathering, so use the cost-sensitive tier.
   'pipeline-snapshot': 'gpt-5.6-luna',
 };
@@ -43,6 +48,7 @@ const CODEX_AGENT_REASONING_EFFORTS = {
   'backend-code-reviewer': 'high',
   'frontend-code-reviewer': 'high',
   'general-code-reviewer': 'high',
+  'plan-reviewer': 'high',
   'pipeline-snapshot': 'medium',
 };
 
@@ -52,6 +58,9 @@ ${c('1', '@mlangroman/sdlc')} — ticket → plan → implement → land pipelin
 
 Usage:
   npx @mlangroman/sdlc setup [options]     Set up the pipeline in the current directory
+  sdlc actor [runtime] [--new]              Print a session-scoped Beads actor
+  sdlc hash <file>                          Print the canonical full-file SHA-256
+  sdlc doctor <NNN> [--json]                Validate pipeline and native Beads integrity
   sdlc review <NNN> [options]               Prepare a plan worktree for local human review
 
 Options:
@@ -74,8 +83,8 @@ What setup does:
   2. Creates thoughts/{${THOUGHTS_SUBDIRS.join(',')}} + thoughts/AGENTS.md (+ CLAUDE.md symlink)
   3. Creates a root AGENTS.md (if missing) and a root CLAUDE.md → AGENTS.md symlink
   4. Installs pipeline skills into .agents/skills/ (symlinked into .claude/skills/ for Claude)
-  5. Installs three code reviewers plus pipeline-snapshot into .claude/agents/ (Claude) or .codex/agents/ (Codex)
-  6. Initializes beads (bd init), if bd is installed
+  5. Installs five bundled read-only reviewer and snapshot profiles into .claude/agents/ (Claude) or .codex/agents/ (Codex)
+  6. Verifies Beads >= 1.1.0 and initializes it (unless --skip-beads)
 
 Skills can also be installed on their own, for any supported agent, via the skills CLI:
   npx skills add MJLang/sdlc
@@ -106,42 +115,6 @@ function substitute(value, variables) {
   return value.replace(/\{(worktree|port)\}/g, (_, key) => String(variables[key]));
 }
 
-function findWorktree(branch) {
-  const output = git(['worktree', 'list', '--porcelain']);
-  if (!output) return undefined;
-
-  let current;
-  for (const line of `${output}\n`.split(/\r?\n/)) {
-    if (line.startsWith('worktree ')) {
-      current = { path: line.slice('worktree '.length) };
-    } else if (line.startsWith('branch refs/heads/') && current) {
-      current.branch = line.slice('branch refs/heads/'.length);
-    } else if (!line && current) {
-      if (current.branch === branch) return current.path;
-      current = undefined;
-    }
-  }
-  return undefined;
-}
-
-function findPlan(number) {
-  const plansDir = join(cwd, 'thoughts', 'plans');
-  if (!existsSync(plansDir)) return undefined;
-  const matches = readdirSync(plansDir)
-    .filter((file) => new RegExp(`^${escapeRegex(number)}-[^.]+\\.md$`).test(file))
-    .sort();
-  if (matches.length !== 1) return undefined;
-  return matches[0];
-}
-
-function findTicket(number) {
-  const ticketsDir = join(cwd, 'thoughts', 'tickets');
-  if (!existsSync(ticketsDir)) return undefined;
-  return readdirSync(ticketsDir)
-    .filter((file) => new RegExp(`^${escapeRegex(number)}-[^.]+\\.md$`).test(file))
-    .sort()[0];
-}
-
 function latestReviewArtifact(worktree, number) {
   const reviewsDir = join(worktree, 'thoughts', 'reviews');
   if (!existsSync(reviewsDir)) return undefined;
@@ -154,59 +127,10 @@ function latestReviewArtifact(worktree, number) {
   return matches.length ? join(reviewsDir, matches.at(-1)) : undefined;
 }
 
-const VALID_REVIEW_VERDICT = /^(?:APPROVED(?: — [1-9]\d* NIT)?|BLOCKED — [1-9]\d* MUST FIX)$/;
-
-function aggregateVerdict(componentVerdicts) {
-  let mustFix = 0;
-  let nits = 0;
-
-  for (const verdict of componentVerdicts) {
-    if (!VALID_REVIEW_VERDICT.test(verdict)) return undefined;
-    const blocked = verdict.match(/^BLOCKED — ([1-9]\d*) MUST FIX$/);
-    const approvedWithNits = verdict.match(/^APPROVED — ([1-9]\d*) NIT$/);
-    if (blocked) mustFix += Number(blocked[1]);
-    else if (approvedWithNits) nits += Number(approvedWithNits[1]);
-  }
-
-  if (mustFix) return `BLOCKED — ${mustFix} MUST FIX`;
-  if (nits) return `APPROVED — ${nits} NIT`;
-  return 'APPROVED';
-}
-
 function verdictFrom(artifact) {
   if (!artifact) return undefined;
-  const contents = readFileSync(artifact, 'utf8').replace(/\r\n/g, '\n');
-  const overallSections = [...contents.matchAll(/^## Overall[ \t]*$/gm)];
-
-  if (overallSections.length) {
-    const marker = overallSections.at(-1);
-    const componentSection = contents.slice(0, marker.index);
-    const section = contents.slice(marker.index + marker[0].length);
-    const verdicts = section.match(/^Verdict:[ \t]*(.+)[ \t]*$/gm) ?? [];
-    if (verdicts.length !== 1) return undefined;
-
-    const overallVerdict = verdicts[0].replace(/^Verdict:[ \t]*/, '').trim();
-    if (!VALID_REVIEW_VERDICT.test(overallVerdict)) return undefined;
-
-    const firstComponentHeading = componentSection.search(/^##[ \t]+/m);
-    const header = firstComponentHeading >= 0 ? componentSection.slice(0, firstComponentHeading) : componentSection;
-    const reviewedSha = header.match(/^Reviewed code SHA:[ \t]*([0-9a-f]{7,64})[ \t]*$/m)?.[1];
-    const reviewerList = header.match(/^Reviewers:[ \t]*(.+)[ \t]*$/m)?.[1]
-      .split(',')
-      .map((name) => name.trim())
-      .filter(Boolean);
-    if (!reviewedSha || !reviewerList?.length || new Set(reviewerList).size !== reviewerList.length) return undefined;
-
-    const componentLines = componentSection.match(/^Verdict:[ \t]*(.+)[ \t]*$/gm) ?? [];
-    if (componentLines.length !== reviewerList.length) return undefined;
-    const componentVerdicts = componentLines.map((line) => line.replace(/^Verdict:[ \t]*/, '').trim());
-    return aggregateVerdict(componentVerdicts) === overallVerdict ? overallVerdict : undefined;
-  }
-
-  // Backward compatibility for pre-aggregation artifacts.
-  const verdicts = contents.match(/^Verdict:[ \t]*(.+)[ \t]*$/gm);
-  const verdict = verdicts?.at(-1)?.replace(/^Verdict:[ \t]*/, '').trim();
-  return verdict && VALID_REVIEW_VERDICT.test(verdict) ? verdict : undefined;
+  const parsed = parseReviewArtifact(readFileSync(artifact, 'utf8'));
+  return parsed.valid ? parsed.verdict?.value : undefined;
 }
 
 function openPath(path) {
@@ -225,6 +149,69 @@ function availablePort(preferred) {
       server.close(() => resolve(port));
     });
   });
+}
+
+function positionalAfter(name, { skipOptionValues = new Set() } = {}) {
+  const commandIndex = args.indexOf(name);
+  for (let index = commandIndex + 1; index < args.length; index += 1) {
+    if (skipOptionValues.has(args[index])) {
+      index += 1;
+      continue;
+    }
+    if (!args[index].startsWith('-')) return args[index];
+  }
+  return undefined;
+}
+
+function actor() {
+  const runtimeFlag = args.findIndex((argument) => argument === '--runtime');
+  const runtimeAssignment = args.find((argument) => argument.startsWith('--runtime='));
+  const runtime = runtimeFlag >= 0
+    ? args[runtimeFlag + 1]
+    : runtimeAssignment?.slice('--runtime='.length) || positionalAfter('actor');
+  if (runtimeFlag >= 0 && !runtime) {
+    console.error('Usage: sdlc actor [runtime] [--new]');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    console.log(repositorySessionActor({ cwd, runtime, fresh: flags.has('--new') }));
+  } catch (error) {
+    console.error(`Could not establish the session actor: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+function hash() {
+  const path = positionalAfter('hash');
+  if (!path) {
+    console.error('Usage: sdlc hash <file>');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    console.log(formatFingerprint(fingerprintFile(path)));
+  } catch (error) {
+    console.error(`Could not hash ${path}: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+function doctor() {
+  const number = positionalAfter('doctor');
+  if (!number || !/^\d+$/.test(number)) {
+    console.error('Usage: sdlc doctor <NNN> [--json]');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const result = inspectDoctor(number, { cwd });
+    console.log(flags.has('--json') ? JSON.stringify(result, null, 2) : formatDoctor(result));
+    process.exitCode = doctorExitCode(result);
+  } catch (error) {
+    console.error(`Doctor failed: ${error.message}`);
+    process.exitCode = 1;
+  }
 }
 
 async function review() {
@@ -247,22 +234,26 @@ async function review() {
   }
 
   const normalizedNumber = number.padStart(3, '0');
-  const planFile = findPlan(normalizedNumber);
-  if (!planFile) {
-    console.error(`Could not resolve exactly one plan for ${normalizedNumber} in thoughts/plans/.`);
+  const diagnosis = inspectDoctor(normalizedNumber, { cwd });
+  const ambiguousPlan = diagnosis.errors?.some((error) => error.includes('Expected at most one applicable plan'));
+  if (!diagnosis.plan?.path || ambiguousPlan) {
+    console.error(`Could not resolve exactly one applicable plan for ${normalizedNumber} in the canonical primary checkout.`);
+    if (diagnosis.errors?.[0]) console.error(`Doctor state: ${diagnosis.state} — ${diagnosis.errors[0]}`);
     process.exitCode = 1;
     return;
   }
 
+  const primary = diagnosis.primaryCheckout || cwd;
+  const planFile = basename(diagnosis.plan.path);
   const planName = planFile.replace(/\.md$/, '');
-  const worktree = findWorktree(planName);
+  const worktree = diagnosis.worktree?.path;
   if (!worktree || !existsSync(worktree)) {
-    console.error(`No registered worktree found for ${planName}. Expected .worktrees/${planName}.`);
+    console.error(`No Beads-visible worktree found for ${planName}. Expected .worktrees/${planName}.`);
+    console.error(`Doctor state: ${diagnosis.state}${diagnosis.errors[0] ? ` — ${diagnosis.errors[0]}` : ''}`);
     process.exitCode = 1;
     return;
   }
 
-  const ticketFile = findTicket(normalizedNumber);
   const artifact = latestReviewArtifact(worktree, normalizedNumber);
   const sha = git(['-C', worktree, 'rev-parse', '--short', 'HEAD']);
   const base = git(['-C', worktree, 'merge-base', 'main', 'HEAD']);
@@ -274,15 +265,17 @@ async function review() {
   console.log(`Worktree: ${worktree}`);
   console.log(`Branch: ${planName}${sha ? ` @ ${sha}` : ''}`);
   console.log(`Base: ${baseSha ? `main @ ${baseSha}` : 'unavailable'}`);
-  console.log(`\nTicket: ${ticketFile ? join(cwd, 'thoughts', 'tickets', ticketFile) : 'not found'}`);
-  console.log(`Plan: ${join(cwd, 'thoughts', 'plans', planFile)}`);
+  console.log(`\nTicket: ${diagnosis.ticket?.path ? join(primary, diagnosis.ticket.path) : 'not found'}`);
+  console.log(`Plan: ${join(primary, diagnosis.plan.path)}`);
+  console.log(`Approved plan: ${diagnosis.plan?.approvedCommit ? `${diagnosis.plan.sha256} @ ${diagnosis.plan.approvedCommit}` : 'not reproducibly approved'}`);
+  console.log(`Doctor: ${diagnosis.state}${diagnosis.errors[0] ? ` — ${diagnosis.errors[0]}` : ''}`);
   console.log(`Automated review: ${artifact ? verdictFrom(artifact) ?? 'invalid review verdict' : 'not found'}`);
   console.log(`Artifact: ${artifact ?? 'not found'}`);
   console.log(`Worktree status: ${dirty ? 'dirty' : 'clean'}`);
   console.log(`\nChanged:\n${stat}`);
   console.log(`\nInspect: git -C ${JSON.stringify(worktree)} diff main...HEAD`);
 
-  const configPath = join(cwd, 'thoughts', 'AGENTS.md');
+  const configPath = join(primary, 'thoughts', 'AGENTS.md');
   const config = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
   const editor = configCommand(config, 'Review editor');
   const preview = configCommand(config, 'Local preview');
@@ -428,6 +421,18 @@ function renderCodexAgent(source) {
 }
 
 function setup() {
+  let beadsInstallation;
+  if (!flags.has('--skip-beads')) {
+    beadsInstallation = inspectBeadsInstallation({ cwd });
+    if (!beadsInstallation.coreCapabilitiesValid) {
+      console.error('\nCannot set up the Beads-backed workflow:');
+      for (const error of beadsInstallation.errors) console.error(`  - ${error}`);
+      console.error('Install or upgrade Beads, or pass --skip-beads to scaffold files without enabling workflow transitions.');
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   console.log(c('1', '\nSetting up the sdlc pipeline in ') + cwd);
 
   head('git');
@@ -529,15 +534,21 @@ function setup() {
 
   if (!flags.has('--skip-beads')) {
     head('beads');
-    const bd = spawnSync('bd', ['--version'], { stdio: 'pipe' });
-    if (bd.error || bd.status !== 0) {
-      warn('bd (beads) not found — install it from https://github.com/gastownhall/beads, then run: bd init');
-    } else if (existsSync(join(cwd, '.beads'))) {
+    ok(`bd ${beadsInstallation.version} (required native capabilities present)`);
+    if (existsSync(join(cwd, '.beads'))) {
       skip('.beads/ exists');
     } else {
-      const r = spawnSync('bd', ['init'], { cwd, stdio: 'inherit' });
+      const r = spawnSync('bd', ['init'], {
+        cwd,
+        env: { ...process.env, BEADS_ACTOR: createSessionActor({ runtime: 'setup', sessionId: null, existingActor: null, fresh: true }) },
+        stdio: 'inherit',
+      });
       if (r.status === 0) ok('bd init');
-      else warn('bd init failed — run it yourself');
+      else {
+        console.error('  Beads initialization failed; setup is incomplete.');
+        process.exitCode = 1;
+        return;
+      }
     }
   }
 
@@ -554,5 +565,8 @@ Dashboard: /queue    Autonomous: /loop /next    Small fixes: /chore
 }
 
 if (command === 'setup') setup();
+else if (command === 'actor') actor();
+else if (command === 'hash') hash();
+else if (command === 'doctor') doctor();
 else if (command === 'review') await review();
 else help();

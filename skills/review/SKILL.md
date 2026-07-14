@@ -1,39 +1,49 @@
 ---
 name: review
-version: 0.2.0
-description: Prepare an implemented plan's worktree for local human review. Resolve the ticket, plan, worktree, diff, and latest persisted automated-review artifact without making any changes. Use before the human invokes /land.
+version: 0.3.0
+description: Prepare an implemented plan's Beads-visible worktree, approved-plan identity, diff, and persisted aggregate review for local human inspection without changing pipeline state.
 ---
 
-# Local review hand-off
+# Local review handoff
 
-Run this skill when the user asks to inspect an implemented plan locally before landing it. This is a **human-review surface**, not another automated review and not a state transition. It never edits, stages, commits, pushes, changes Beads, or invokes `/land`.
+Use this human-review surface before `/land`. It is not an automated review or state transition. Never edit, stage, commit, push, change Beads, resolve a gate, or invoke `/land`.
 
 ## Input
 
 `/review <NNN> [--editor] [--artifact] [--diff] [--preview] [--port <number>]`
 
-`<NNN>` is the ticket/plan number. If it is absent, ask for it; never guess among multiple plans.
+Require `<NNN>`; never guess among plans.
 
 ## Procedure
 
-1. Run `sdlc review <NNN>` from the primary checkout. It resolves the matching plan and registered worktree, then prints the ticket, plan, branch SHA, merge base, diff stat, latest review artifact, and dirty/clean state.
-2. State the absolute worktree path prominently. Review files are in that checkout; users should not need to navigate `.worktrees/` by hand.
-3. Run an optional action only when the user included its explicit flag:
-   - `--editor` opens the configured editor in the worktree.
-   - `--artifact` opens the latest `thoughts/reviews/<NNN>-round*.md` report.
-   - `--diff` presents `main...HEAD` for inspection.
-   - `--preview` starts the configured local preview in the background and returns its URL. It requires both **Local preview** and **Preview URL** in `thoughts/AGENTS.md`. `{worktree}` and `{port}` placeholders are supported; use `--port` to choose a port (default 4173).
-4. If the automated review is missing, has an invalid verdict, or is blocked, say so plainly. Do not claim the change is ready to land.
-5. Close with the concrete next action: the human may invoke `/land <NNN>` only when they are satisfied. Do not infer approval from opening an editor, preview, diff, or artifact.
+1. From the primary checkout, run `sdlc doctor <NNN> --json` and `sdlc review <NNN>`. Every Beads query made directly or by a delegated observer must be `bd --readonly ...`.
+2. Resolve and display prominently:
+   - absolute canonical ticket and plan paths in primary main;
+   - latest reproducible approved plan SHA-256 and approval commit;
+   - Beads epic and current doctor state;
+   - native Beads-visible worktree path, branch HEAD, merge base, dirty state, and diff stat;
+   - latest `thoughts/reviews/<NNN>-round*.md`, its Reviewed code SHA, approved plan SHA/commit, structured Overall checks, and final verdict.
+3. Treat worktree ticket/plan copies as snapshots. Report skew as informational and keep linking the canonical main files; never recommend copying or rebasing amended artifact text into the worktree.
+4. Validate the handoff facts without mutation:
+   - aggregate/component verdict grammar is valid and consistent;
+   - `Scope-Check`, `AC-Coverage`, and `Fix-Disposition` parse and reconcile;
+   - the review note binds the artifact commit and Reviewed code SHA;
+   - the artifact's approved plan hash/commit equals the epic's latest reproducible approval;
+   - the reviewed HEAD is current or connected only by the permitted recorded clean-rebase chain.
 
-## Configuration
+   Warn plainly when the artifact is missing, malformed, blocked, stale against code, or bound to a different plan approval. Such work is not ready to land. Likewise surface doctor `reapproval_required`, `legacy`, or `blocked` with its exact recovery action.
+5. Run an optional action only when the user explicitly requested its flag:
+   - `--editor`: open the configured editor at the worktree;
+   - `--artifact`: open the persisted aggregate report;
+   - `--diff`: present `main...HEAD`;
+   - `--preview`: start the configured preview from the worktree and return its URL. Require **Local preview** and **Preview URL** in Project Configuration; substitute `{worktree}` and `{port}`, with default port 4173.
 
-Projects may add these optional Project Configuration lines to `thoughts/AGENTS.md`:
+Opening an editor, artifact, diff, or preview never implies approval. Close with the actual doctor/review status and say `/land <NNN>` is available only when the user is satisfied and every landing precondition is healthy.
+
+Optional Project Configuration remains:
 
 ```md
 - **Review editor:** `code {worktree}`
 - **Local preview:** `npm run dev -- --port {port}`
 - **Preview URL:** `http://localhost:{port}`
 ```
-
-Keep the preview command project-specific. It must run from the worktree and should respect the passed port. `sdlc review` only runs it when `--preview` is explicit.

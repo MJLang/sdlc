@@ -1,39 +1,82 @@
 ---
 name: cancel
-version: 0.2.0
-description: Human gate — cancel a line of work (ticket + plan + epic + worktree), or just the plan to re-plan against the same ticket.
+version: 0.3.0
+description: Human gate that safely cancels a ticket/plan/Beads/worktree line of work, or cancels only its plan for explicit re-planning, using native ownership and worktree safeguards.
 argument-hint: <number> [plan]
 disable-model-invocation: true
 ---
 
-Cancel work for $ARGUMENTS. This is a human gate: it runs only on explicit user invocation.
+Cancel `$ARGUMENTS` only on explicit human invocation.
 
-Scope comes from the second word of the arguments:
-- **(default)** — cancel the whole line of work: ticket, plan, epic, worktree, branch.
-- **`plan`** — cancel only the plan, to re-plan differently: the ticket returns to `approved`, and `/plan {NNN}` may then write a fresh plan (its precondition permits replacing a `cancelled` one).
+Scope is the optional second word:
 
-## Before destroying anything
+- default: cancel ticket, plan, epic/issues/gates, worktree, and branch;
+- `plan`: cancel only the plan and its execution state; keep the ticket `approved` so `/plan {NNN}` can create a replacement while preserving the cancelled artifact.
 
-1. Resolve what exists for {NNN}: ticket, plan, `Beads Epic`, worktree `.worktrees/<plan-name>`, branch (local and remote).
-2. Show the blast radius and, if there is unmerged work, confirm with the user before proceeding:
-   - worktree: `git -C .worktrees/<plan-name> status --short` and `git log main..<plan-name> --oneline`
-   - epic: open issues (`bd show <epic-id>`)
+## Inspect before mutation
 
-## Steps
+Resolve the canonical ticket, plan, latest approval identity, Beads epic/children, open dedicated gates, branch, and native Beads-visible worktree. Handle partial states idempotently.
 
-1. **Beads:** close the epic and all open child issues: `bd close <ids...> --reason="cancelled: <short why>"`.
-2. **Git** (only after the confirmation above):
+Require Beads `>=1.1.0` when Beads/worktree state exists. A missing required native capability blocks destructive cleanup; never silently substitute raw Git or issue-label behavior.
+
+Every Beads observation must use `bd --readonly`, including:
+
+```text
+bd --readonly show <epic-id> --json
+bd --readonly gate list --json
+bd --readonly dep list <open-gate-id> --direction=up --type=blocks --json
+bd --readonly worktree list --json
+bd --readonly orphans --json
+```
+
+Show the blast radius and, when any unmerged/dirty/unpushed/stashed work exists, require explicit confirmation after showing:
+
+- worktree dirty status and diff summary;
+- commits in the plan branch not represented on main;
+- unpublished commits and stashes reported by native worktree safety checks;
+- open/claimed children and gate reasons;
+- staged memory candidates, noting that cancellation deliberately does not promote them.
+
+Do not interpret the original `/cancel` invocation as consent to discard unreported data.
+
+## Actor and removal safety
+
+After confirmation and before the first Beads mutation, establish one unique actor:
+
+```bash
+sdlc actor <runtime> --new
+```
+
+Capture the printed value as `<session-actor>` and carry that exact literal through this invocation. It is also persisted in Git-common state for worktree visibility, but an unqualified latest-actor lookup cannot distinguish overlapping same-runtime roots. Agent tool calls may use fresh shells, so prefix every mutating Beads command with `BEADS_ACTOR="<session-actor>"`; never rely on a prior `export`.
+
+1. For a worktree, first run native safe removal:
 
    ```bash
-   git worktree remove --force .worktrees/<plan-name>
-   git branch -D <plan-name>
-   git push origin --delete <plan-name>   # if it was published
+   BEADS_ACTOR="<session-actor>" bd worktree remove .worktrees/<plan-name>
    ```
 
-3. **Statuses** (the gate flip):
-   - scope `plan`: plan → `Status: cancelled`; ticket stays `approved`.
-   - default: plan → `cancelled` (if one exists), ticket → `cancelled`.
-4. **Push — mandatory:** commit the status flips (`cancel: <ticket title> (ticket NNN) — <short why>`), then `git push` and `bd dolt push`.
-5. **Report:** what was cancelled, what was destroyed, and — for scope `plan` — that `/plan {NNN}` is the next step.
+   Never fall back to raw `git worktree remove`. If safety checks refuse because of dirty files, unpushed commits, or stashes, stop and show the exact data. Use `--force` only after a second explicit confirmation that names the data that will be destroyed; cancellation is the exceptional destructive path, not normal cleanup.
+2. After removal, delete the local branch and its published remote branch. Skip absent pieces and report them. Never delete a branch while its retained worktree still needs recovery.
 
-Handle partial states gracefully: a ticket with no plan (just flip the ticket), a plan with no epic yet (no beads work), an epic with no worktree (no git work). Cancel what exists, skip what doesn't, report both.
+## Close execution state
+
+1. Resolve each open dedicated gate explicitly under the actor:
+
+   ```bash
+   BEADS_ACTOR="<session-actor>" bd gate resolve <gate-id> --reason="cancelled with line of work: <reason>"
+   ```
+
+   Then close open child issues and the epic with `--reason="cancelled: <reason>"`. Do not use `bd human respond`, which may close the wrong implementation issue.
+2. Claims owned by another unique session do not prove that session is dead. The explicit human cancellation plus confirmed blast radius authorizes closeout, but report the prior actor in the cancellation note.
+3. Do not run a memory audit or `bd remember`/`bd forget`. Candidate notes remain on the closed Beads object for possible manual rescue.
+
+## Canonical status commit
+
+Update only canonical primary-main artifacts:
+
+- `plan` scope: plan -> `Status: cancelled`; ticket remains `approved`;
+- default: existing plan -> `Status: cancelled`; ticket -> `Status: cancelled`.
+
+Commit only the affected status paths with `git commit --only` as `cancel: <ticket title> (ticket {NNN}) - <reason>`. Do not include unrelated staged/dirty files. Push Git and then `BEADS_ACTOR="<session-actor>" bd dolt push` where remotes exist, and report their results independently.
+
+Reruns reuse the closed objects and status commit and finish only missing push/cleanup work; they never duplicate cancellation commits or notes. Report what existed, what was safely destroyed, what was already absent, prior claim/gates, both push states, and, for plan-only scope, `/plan {NNN}` as the next legal transition.

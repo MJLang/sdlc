@@ -1,46 +1,143 @@
 ---
 name: plan
-version: 0.2.0
-description: Write an implementation plan for an approved ticket. Use when a ticket in thoughts/tickets is approved and needs a concrete plan before implementation.
+version: 0.3.0
+description: Research and write a traceable implementation plan for an approved ticket, then run the bounded independent plan critique. Use when an approved ticket needs a concrete plan before implementation.
 argument-hint: <ticket number, e.g. 003>
 ---
 
-Write the plan for ticket $ARGUMENTS — the instruction artifact of the pipeline in `thoughts/AGENTS.md`.
+Write the plan for ticket `$ARGUMENTS` under `thoughts/AGENTS.md`. Research is an adaptive substage of this transition, never a separate pipeline state.
 
-## Preconditions — refuse with the specific failure if unmet
+## Preconditions
 
-1. The ticket `thoughts/tickets/{NNN}-*.md` exists.
-2. The ticket has `Status: approved`. If `draft`, tell the user to review and approve the ticket first.
-3. No plan with number {NNN} exists in `thoughts/plans/` (unless its `Status` is `cancelled`). If one exists, stop and report it — plans are revised, not duplicated.
+Refuse with the exact failure when:
 
-## Steps
+1. exactly one `thoughts/tickets/{NNN}-*.md` cannot be resolved;
+2. the ticket is not `Status: approved`;
+3. an active plan with `{NNN}` already exists. A cancelled plan does not block a replacement, but preserve the cancelled artifact; or
+4. `sdlc doctor {NNN} --json` does not return `ready_for_planning`.
 
-1. **Load tags and relevant memories first.** Read the ticket in full and take its `Tags`. For a legacy ticket with no tags, infer 2–5 stable tags as `/ticket` would, including the target name; use those tags in the plan without changing the approved ticket. For each tag, run `bd memories "tag:<tag>" --json`; this searches the memory's explicit index marker rather than matching incidental prose. Deduplicate the returned keys, then use `bd recall <key>` for every candidate. A memory is relevant only if its stated `Applies when` overlaps this ticket — do not let an index match dictate the plan.
-2. **Research.** Read the product docs in `thoughts/docs/` and the code of the ticket's Target. Apply the relevant memories as evidence, but verify them against the current codebase; memories can be stale. Understand existing conventions before proposing anything — the plan must follow the repo's grain, and the code reviewers will hold the implementation to it.
-3. **Frontend constraint.** If the plan includes frontend work, check `thoughts/AGENTS.md` (Project Configuration) for design-system constraints (e.g. no new pages until the design system exists) and honor any configured design skill for on-brand implementation. Note both in the plan.
-4. **Write** `thoughts/plans/{NNN}-{t}-{kebab-case-title}.md` — `t` = first letter of Type, `NNN` = same number as the ticket:
+Use the canonical ticket path and `ticket.sha256` returned by doctor. Confirm it with `sdlc hash <absolute-ticket-path>`; never reproduce the hash algorithm in a shell command.
 
-   ```yaml
-   ---
-   Status: review
-   Tags: [<ticket tags, plus any planning-specific tags>]
-   Type: <type>
-   Target: <target>
-   Ticket Origin: <ticket filename>
-   Beads Epic:
-   ---
-   ```
+## Evidence and memories
 
-   (`Beads Epic` stays empty — `/approve` fills it.)
+1. Read the canonical ticket, `thoughts/docs/`, Project Configuration, relevant source, tests, and repository instructions.
+2. Retrieve candidates for every ticket tag with `bd --readonly memories "tag:<tag>" --json`; deduplicate keys and use `bd --readonly recall <key>`. Apply a memory only when its `Applies when` overlaps the ticket, and verify it against current code.
+3. If frontend work is plausible, honor the configured design-system constraints and design skill and record their effect.
 
-   Body sections:
-   - **Context** — why this work exists, link to the ticket, the relevant existing code.
-   - **Relevant Memories** — each memory key actually used, its applicable lesson, and how it affected the plan. Write `None found` when no relevant memories were returned; do not list merely keyword-matched memories.
-   - **Implementation Steps** — numbered. Each step states: what to do, files touched, and an explicit `Depends on: step N` line (or `Depends on: none`). Steps must be independently completable and gate-checkable. Mark steps whose file sets are disjoint as parallelizable. These `Depends on:` lines become beads issue dependencies at approval — they are the machine-readable form; a mermaid diagram of the step graph is optional, for human readability only.
-   - **Quality Gates** — what must pass after every step: the gate commands defined in `thoughts/AGENTS.md` (Project Configuration), plus the target's own `test` / `typecheck` / `build` scripts where defined.
-   - **Verification** — how to exercise the finished work end-to-end, mapped to the ticket's acceptance criteria.
-   - **Open Questions** — anything unresolved.
+Every Beads command in planning, research, or critique must include `--readonly`. Planning never mutates Beads.
 
-5. **Stop at `review`.** Do NOT create beads issues, worktrees, or code. Report the plan path and that it awaits human review → `/approve {NNN}`.
+## Adaptive research
 
-If something is ambiguous and no user is available (unattended run), do not guess silently: record it under **Open Questions** — the human resolves it at review time.
+Separate repository-answerable unknowns from product or priority decisions requiring a human. Derive zero to three independent research tracks.
+
+- If the current code and docs answer the material questions directly, research inline and put the evidence in **Current-State Findings**. Do not create a research artifact.
+- If material unknowns remain, persist exactly one `thoughts/designs/{NNN}-research.md` synthesis. Use one isolated read-only subagent per independent track when available, with at most three concurrent tracks. Each receives only its question, ticket context, allowed scope, and the output contract below. It must not edit, plan, read sibling reports, or use Beads without `--readonly`.
+- Require each track to cite `file:line`, enumerate Evidence Paths, preserve conflicts and unanswered questions, and declare `Confidence: low | medium | high`. Never resolve conflicts by guessing or omit an unanswered track question.
+
+Use this synthesis frontmatter and sections:
+
+```md
+---
+Ticket: thoughts/tickets/{ticket-file}
+Ticket-Hash: sha256=<ticket hash>
+Baseline: <current main SHA>
+Generated-At: <ISO-8601 UTC>
+Tracks: <1-3>
+---
+
+# Research Synthesis - Ticket {NNN}
+
+## Track R1 - <name>
+Question: <one answerable question>
+Evidence Paths:
+- path/to/evidence
+Findings:
+- <finding with file:line>
+Conflicts:
+- None.
+Remaining Unknowns:
+- None.
+Confidence: high
+
+## Cross-Track Synthesis
+- Planning implications: ...
+- Preserved conflicts: ...
+- Remaining unknowns: ...
+```
+
+### Targeted reuse
+
+Reuse an existing synthesis only after checking it:
+
+1. Refresh every track if `Ticket-Hash` differs, `Baseline` is missing, or the baseline is not an ancestor of current main.
+2. Otherwise collect both sides of renames plus adds/deletes/modifications from `git diff --name-status --find-renames <baseline>..HEAD`, and relevant dirty primary-checkout paths from Git status.
+3. Intersect changed paths with each track's Evidence Paths. Reuse an empty-intersection track; refresh only an intersecting track.
+4. Conservatively refresh a track whose Evidence Paths are missing or too vague to test.
+5. After any refresh, update the baseline, timestamp, and affected track, then regenerate Cross-Track Synthesis while preserving unchanged tracks.
+
+An unrelated landing must not invalidate untouched tracks. A changed ticket invalidates all tracks.
+
+## Write the plan
+
+Write `thoughts/plans/{NNN}-{type-initial}-{kebab-title}.md` with:
+
+```yaml
+---
+Status: review
+Tags: [<ticket and useful planning tags>]
+Type: <ticket type>
+Target: <ticket target>
+Ticket Origin: <repository-relative ticket path>
+Source Ticket Hash: sha256=<doctor ticket hash>
+Beads Epic:
+---
+```
+
+The body must contain:
+
+- **Context** - ticket link, current code, and research-synthesis link when one exists;
+- **Relevant Memories** - only used keys and their effect, or `None found`;
+- **Current-State Findings** - a table with `Area or path | Finding | Evidence | Implication`; cite `path:line`;
+- **Implementation Steps** - immutable numbered steps using the exact shape below;
+- **Quality Gates** - Project Configuration gates plus target test/typecheck/build commands;
+- **Verification** - map every live AC to a concrete exercise and expected outcome;
+- **Approval Attention** - a table with `ID | Operation or decision | Why attention is required | Timing | Status`, or `None`;
+- **Open Questions** - include research unknowns and human decisions, or `None`;
+- **Plan Critique** - the visible critique record described below.
+
+```md
+### Step 2 - Apply validated export filters
+
+Covers: AC-001, AC-002
+Files:
+- src/server/routes/export.ts
+- src/server/services/export-service.ts
+Depends on: step 1
+Parallelizable: no
+
+<implementation and validation instructions>
+```
+
+Every active step declares `Covers`, `Files`, `Depends on`, and `Parallelizable`. A pure enabler may use `Covers: none - <reason>`, but every live AC must be covered by at least one active step and by Verification. Reference only ticket IDs. Make dependencies acyclic and parallelize only disjoint file sets. Disclose destructive, external, schema, public-API, configuration, and protected-file operations in Approval Attention. Include decisions, risks, rollback, documentation impact, or broader impact sections only when material.
+
+## Independent critique
+
+Before stopping, run one independent `plan-reviewer` or an isolated generic fallback with the same read-only contract. Give it the canonical ticket, synthesis if present, plan, repository scope, and ask it to check ticket intent, every AC, evidence and unknowns, conventions, dependencies, file overlap, Verification, Approval Attention, and excess scope.
+
+Record stable `PC-NNN` findings in the plan:
+
+```md
+## Plan Critique
+
+Pass 1 Verdict: BLOCKED - 1 MUST FIX
+- PC-001 [fixed]: <finding and disposition>
+
+Scoped Re-check Verdict: APPROVED
+```
+
+- Run exactly one full pass.
+- Correct blocking findings when possible. If any were corrected, run at most one re-check scoped only to those IDs; never a third pass.
+- Leave unresolved blockers visible. `/approve` must refuse until a human corrects or explicitly waives each one with a recorded reason.
+- If the named reviewer is unavailable, mark the isolated fallback. If no independent context is available, record a degraded critique instead of inventing approval.
+
+Stop at `Status: review`. Do not create Beads issues, worktrees, or code. Report the plan and optional synthesis paths and direct the human to `/approve {NNN}`.
