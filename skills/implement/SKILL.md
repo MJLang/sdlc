@@ -1,110 +1,163 @@
 ---
 name: implement
-version: 0.2.0
-description: Implement an approved plan in its own git worktree — claim the beads epic, execute steps via subagents in dependency order, run quality gates per step, then one full code review. Use when a plan is approved and its beads epic exists.
+version: 0.3.0
+description: Implement an approved, fingerprinted plan in a Beads-managed worktree, execute its dependency graph, and run the bounded structured aggregate review. Use when doctor reports a plan healthy and ready for execution.
 argument-hint: <plan number, e.g. 003>
 ---
 
-Implement plan $ARGUMENTS per the pipeline in `thoughts/AGENTS.md`.
+Implement plan `$ARGUMENTS` under `thoughts/AGENTS.md`. Canonical ticket and plan text always comes from the primary `main` checkout; worktree copies are non-authoritative snapshots.
 
-## Preconditions — refuse with the specific failure if unmet
+## Integrity preflight and ownership
 
-1. The plan exists, has `Status: approved`, and `Beads Epic:` is set. If `review` → needs `/approve` first. If `merged` → already done.
-2. **Claim the epic as the very first action** — this is the concurrency mutex:
-
-   ```bash
-   bd update <epic-id> --claim
-   ```
-
-   If it is already claimed / in_progress by another session, STOP: another loop or session owns this plan.
-
-## Setup
-
-1. From an up-to-date main (`git pull --rebase`), create the worktree — path and branch are both the plan name (plan filename without `.md`):
+1. Make `sdlc doctor {NNN} --json` the first action. Refuse unless it returns `healthy` and identifies one approved plan, ticket, epic, latest reproducible approval record, and no native coordination blocker. `reapproval_required` means `/approve {NNN}`; `legacy` requires explicit migration; `blocked` requires the reported recovery. Never claim first and validate later.
+2. If a remote exists, fetch and safely update primary main without stashing or overwriting unrelated user changes, then run doctor again. Refuse if current main cannot be made current safely.
+3. Establish one root actor. Inherit only when `/next` explicitly invoked this transition and supplied its exact captured actor identity; otherwise treat this as a new root boundary, set `<runtime>`, and run:
 
    ```bash
-   git worktree add .worktrees/<plan-name> -b <plan-name>
+   sdlc actor <runtime> --new
    ```
 
-   If the worktree or branch already exists, resume it — do not recreate. On resume with a dirty worktree: diff the uncommitted changes against the in-progress step and either finish or reset them; never blindly commit.
-2. Publish the branch immediately: `git push -u origin <plan-name>` — from here on, nothing exists only locally. (Skip only if the repo has no remote; note it in the report.)
+   Capture the printed value as `<session-actor>` and carry that exact literal through this invocation. The actor is persisted in Git-common state for worktree visibility, but an unqualified latest-actor lookup cannot distinguish overlapping same-runtime roots. Because agent tool calls may use fresh shells, prefix every mutating Beads command with `BEADS_ACTOR="<session-actor>"`; never rely on a prior `export`. Pass the same literal identity and prefix rule to every authorized mutating subagent. A later root session must use a different actor.
+4. Make the atomic epic claim the first Beads mutation:
+
+   ```bash
+   BEADS_ACTOR="<session-actor>" bd update <epic-id> --claim
+   ```
+
+   A different owner stops the transition. A repeated claim is resumable only when it is this exact session actor; never equate a shared OS/Git identity with ownership.
+
+All pipeline observations use `bd --readonly`, including reads by implementer/reviewer subagents. The parent owns issue/gate/note mutations unless a subagent is explicitly authorized under the inherited actor.
+
+## Worktree
+
+Use the plan filename without `.md` for both branch and worktree name.
+
+1. Inspect `bd --readonly worktree list --json`. Create a missing worktree from current main only through:
+
+   ```bash
+   BEADS_ACTOR="<session-actor>" bd worktree create .worktrees/<plan-name> --branch=<plan-name>
+   ```
+
+   Never fall back to raw `git worktree add`. If a matching Beads-visible worktree exists, verify its branch, native shared-store state (`local` is the Beads 1.1 worktree-list value for a linked worktree; `shared`/`redirect` remain compatible), and ownership, then resume it. Legacy worktrees may finish only when native discovery resolves them and safety checks pass.
+2. If the resumed worktree is dirty, reconcile changes with the currently claimed step. Never reset, discard, or blindly commit user or crashed-session work.
+3. Publish a newly created branch with `git push -u origin <plan-name>` when a remote exists. Keep later completed steps pushed; report a no-remote repository explicitly.
+4. Retain the absolute canonical ticket path, canonical plan path, approved `plan-sha256`, and approved main commit from doctor. Give these values to every implementer and reviewer. Never read worktree `thoughts/tickets/` or `thoughts/plans/` as gate truth and never copy an amended plan into the worktree.
 
 ## Execution loop
 
-Repeat until every issue in the epic is closed. **Re-derive the issue set from beads at the top of every iteration** — plans can be amended mid-flight (`/approve` re-sync), and newly added issues simply join the queue.
+Repeat until every active child issue is closed or gated:
 
-1. `bd ready` → pick unblocked issues belonging to the epic. Claim each before working: `bd update <id> --claim`.
-2. For each claimed issue, spawn an implementer subagent (Agent tool) working **inside the worktree directory**, giving it: the ticket, the plan, the step's text, and the instruction to follow existing repo conventions. Steps the plan marks parallelizable (disjoint file sets) may run as concurrent subagents; otherwise serialize — parallel edits to overlapping files in one worktree will conflict.
-3. After each step, run the plan's quality gates inside the worktree: the gate commands defined in `thoughts/AGENTS.md` (Project Configuration), plus the target's own `test` / `typecheck` scripts where defined. Gates fail → fix before proceeding.
-4. Gates pass → commit in the worktree (one commit per step: `step N: <title> (<issue-id>)`), `bd close <issue-id>`, and `git push` — every finished step is on the remote branch the moment it closes; a crashed session strands nothing.
-5. Blocked on something only a human can decide → flag it (`bd update <issue-id> --add-label human`), leave the issue open, and continue with other unblocked steps. If nothing else can proceed, stop and report.
+1. Re-run `sdlc doctor {NNN} --json` at the top of every iteration, before selecting work. Any ticket/plan drift or new approval identity stops immediately before another issue claim and reports `/approve {NNN}`. Re-derive the issue graph with `bd --readonly show <epic-id> --json` and eligibility with `bd --readonly ready --json`.
+2. Select only ready children of this epic. Respect `Depends on` and serialize overlapping `Files`; concurrently execute only plan-declared parallel steps whose file sets are disjoint.
+3. Claim each selected child atomically under this session actor. A conflicting owner stops work on that child; do not share it.
+4. Give an implementer subagent:
+   - the worktree directory as its only edit root;
+   - absolute canonical ticket and plan paths;
+   - approved plan hash and commit;
+   - exact step text, issue ID, `Covers`, and `Files`;
+   - current repository instructions and the requirement to follow existing conventions.
 
-## Capture durable insight
+   The subagent must verify `sdlc hash <canonical-plan>` equals the supplied approved hash before editing. It must not edit canonical artifacts. Beads reads, if needed, use `bd --readonly`; the parent performs lifecycle mutations.
+5. Run Project Configuration gates plus applicable target test/typecheck/build commands in the worktree. Fix failures before closing the issue.
+6. Commit one step as `step N: <title> (<issue-id>)`, then push the Git commit when a remote exists. Only after the code is safely published, close the issue with the inline session actor and push Beads. A crash after commit/push but before close is recovered through the issue-bearing commit reported by `bd --readonly orphans --json`; never auto-close merely because an orphan signal exists.
+7. At the next iteration, verify that any committed-but-open issue corresponds to the exact expected commit and gates before explicitly closing it. Verify any closed-but-unpushed step before pushing. Do not duplicate commits.
 
-When a step surfaces a non-obvious fact that may outlive this plan — a toolchain gotcha, *why* a gate or flag had to be set an unusual way, a setup/first-run footgun — record it as a **memory candidate**. Do not write it as a memory yet: the completed implementation performs one audit after review, so stale or duplicate advice does not accumulate.
+### Human decisions
 
-## Review — once per plan, at the end
+When a step needs a human product choice, execution-time approval, destructive/external action, or another decision the plan did not settle, keep the step open and create a dedicated gate:
 
-1. **Derive the required reviewer set from the current diff.** Use the actual changed files (excluding prior `thoughts/reviews/` artifacts), not only the plan's declared `Target`. Dispatch every distinct reviewer mapped to the affected lanes in `thoughts/AGENTS.md` (Project Configuration). Use the shipped `general-code-reviewer` for each changed lane that has no configured reviewer; give every reviewer the ticket and plan paths plus its explicit lane/file scope. Deduplicate repeated reviewer names by giving that reviewer the union of its scopes. Recompute this set for every round. If a required named reviewer is unavailable, flag the epic `human` and stop; never substitute an anonymous reviewer whose verdict contract is unknown.
-2. **Run one review round against one HEAD.** Require a clean worktree, record the current code HEAD, and pass that expected SHA explicitly to every required reviewer. Run them against that exact HEAD (concurrently is fine because reviewers are read-only); do not edit or commit between reviewer runs. Each component result must contain exactly one standalone line matching one of `Verdict: BLOCKED — <positive n> MUST FIX`, `Verdict: APPROVED — <positive n> NIT`, or `Verdict: APPROVED`. Retry a missing, duplicate, or malformed verdict once against the same HEAD without consuming a round. If the configured reviewer still violates the contract, flag the epic `human` and stop; never silently replace a configured reviewer with the fallback or infer approval. After collecting valid results, re-read `HEAD` and `git status --short`. If the SHA changed or the worktree is no longer clean, discard every component result, resolve the unexpected state, and restart the same round; never aggregate reports from a mixed or moving HEAD.
-3. **Write one aggregate artifact.** In deterministic reviewer-name order, embed each component report verbatim under its own heading in `thoughts/reviews/{NNN}-round{n}.md`. Include the reviewed code HEAD and reviewer list at the top. End the file with an `## Overall` section and make its aggregate `Verdict:` the **final verdict line in the file**:
-   - if any component is blocked, sum their MUST FIX counts and emit `Verdict: BLOCKED — <n> MUST FIX`;
-   - otherwise, sum all NIT counts and emit `Verdict: APPROVED — <n> NIT`, or bare `Verdict: APPROVED` when the sum is zero.
+```bash
+BEADS_ACTOR="<session-actor>" bd gate create --type=human --blocks <step-id> --reason="<AA-NNN when applicable; specific question and required decision>"
+```
 
-   Use this shape:
+Continue other unblocked steps. If nothing remains ready, stop and report the gate ID and human recovery `BEADS_ACTOR="<new-session-actor>" bd gate resolve <gate-id> --reason="<resolution>"`. The resolution reason must name the Approval Attention ID when one exists, leaving an auditable execution-time decision without editing canonical plan text. Never label the implementation step `human`, never use `bd human respond` to answer the question, and never infer resolution. Reserve the `human` label for non-gating escalation such as reviewer failure or convergence stop.
 
-   ```md
-   # Automated Review — <NNN> round <n>
-   Reviewed code SHA: <sha>
-   Reviewers: <comma-separated agent names>
+A pre-contract step already labeled `human` is a legacy blocker, not a gate or escalation. Do not auto-convert or call `bd human respond`; require the human's recorded decision, remove the label only when continuing the still-open step is safe, and use dedicated gates for all new questions.
 
-   ## <reviewer-name>
-   <component report verbatim>
+## Memory candidates only
 
-   ## Overall
-   - <reviewer-name>: <component verdict>
+Do not run `bd remember`, `bd forget`, or a memory audit. Append only durable, high-signal candidates to the epic:
 
-   Verdict: <aggregate verdict>
-   ```
+```text
+memory-candidate: key=<stable-slug>; tags=<comma-list>; finding=<fact>; why=<reason>; applies=<scope>; source-step=<issue-id>
+```
 
-   This last-line rule makes the artifact machine-readable even though it contains the component `Verdict:` lines. Commit **only** the aggregate artifact in the round commit; its complete findings and NITs travel with the branch.
-4. **Resolve a blocked round.** Fix every actionable MUST FIX in the worktree, re-run gates, and commit. Then start a new round against the new HEAD and rerun the **entire** required reviewer set; no approval carries across a code change. Cap at 3 completed aggregate rounds; if still blocked, flag the epic (`bd update <epic-id> --add-label human`) and report.
-5. **Record aggregate approval.** After the approved aggregate artifact is committed, record the overall verdict against the resulting HEAD and push:
+`/land` evaluates and promotes them after a merge commit exists. Candidates from cancelled work deliberately remain unpromoted.
 
-   ```bash
-   bd update <epic-id> --append-notes="review: APPROVED sha=<worktree HEAD sha> rounds=<n>"
-   git push
-   ```
-6. **Audit and maintain tagged memories.** Read the plan's `Tags`. For each tag, run `bd memories "tag:<tag>" --json`; this searches the memory's explicit index marker rather than matching incidental prose. Deduplicate the keys and `bd recall` every candidate returned. Audit each memory against the completed implementation and classify it:
-   - **Keep** when it remains accurate and useful.
-   - **Refresh** when its wording, evidence, or `Applies when` needs correction; update it in place with the same `--key`.
-   - **Merge** when two memories convey the same lesson; write the consolidated canonical memory first, then `bd forget <duplicate-key>`.
-   - **Forget** only when the implementation proves it false, obsolete, or superseded. Never forget a memory merely because this plan did not use it; if uncertain, keep it.
+## Aggregate review
 
-   Then promote the high-signal memory candidates that survived the audit. Each memory needs 2–5 plain retrieval tags — include applicable plan tags and, when useful, `decision`, `footgun`, or `convention` — plus the fact, why it matters, when it applies, and its source:
+Run review only after all active implementation children are closed, no gate is open, the worktree is clean, and quality gates pass.
 
-   ```bash
-   bd remember "Tags: <plan-tag>, <technology>, <decision|footgun|convention>
-   Index: tag:<plan-tag> tag:<technology> tag:<decision|footgun|convention>
-   Finding: <durable fact>
-   Why: <why it matters>
-   Applies when: <scope>
-   Source: plan <NNN>, commit <sha>" --key <stable-slug>
-   ```
+### Reviewer set and immutable inputs
 
-   Record the actions and affected keys on the epic, including an explicit `none` when nothing changed, then sync the Beads database:
+1. Derive the required reviewer set from actual changed paths against main, excluding `thoughts/reviews/`. Use every configured lane reviewer; use `general-code-reviewer` for an unmapped changed lane; deduplicate a repeated reviewer by unioning scopes. Recompute every round.
+2. An unavailable required reviewer is a non-gating escalation: add `human` to the epic, persist the reason, and stop. Never substitute an anonymous contract.
+3. Capture one reviewed code HEAD. Give every reviewer the exact HEAD, canonical ticket/plan paths, approved plan hash/commit, lane scope, current ACs, and, for rounds after one, the prior finding inventory. Every reviewer is read-only, uses `bd --readonly`, verifies the canonical plan hash, and stops on drift.
+4. Run reviewers against that one HEAD, concurrently when useful. Do not edit during review. Before aggregation, confirm HEAD is unchanged and the worktree is clean; otherwise discard all reports and restart the same round after reconciling the state.
 
-   ```bash
-   bd update <epic-id> --append-notes="memory audit: kept=<keys|none>; refreshed=<keys|none>; merged=<keys|none>; forgot=<keys|none>; added=<keys|none>"
-   bd dolt push
-   ```
+### Component contract
 
-   This is separate from an issue close `--reason` (which records what happened in one step). Memories are the handful of facts worth carrying into future sessions — keep them few and high-signal. See the Memory guidance in the root `AGENTS.md`.
+Each component report must contain exactly one standalone verdict line matching:
 
-## Never
+```text
+Verdict: BLOCKED — <positive n> MUST FIX
+Verdict: APPROVED — <positive n> NIT
+Verdict: APPROVED
+```
 
-- Never merge to main — that is `/land`, a human gate.
-- Never edit files outside the worktree. Plan and ticket frontmatter are untouched here; live progress lives in beads.
-- Never ask the user questions mid-run — use the `human` label and keep going where possible.
+This em-dash verdict grammar is exact. Each MUST FIX gets a reviewer-scoped stable ID such as `MF-backend-001`, never reassigned. From round two onward each reviewer first classifies all prior IDs as `fixed` or `persists` with evidence, then performs a complete fresh review against the new HEAD for regressions and new findings.
 
-**Report:** steps completed, gate results, review verdict, and worktree path. When the review is approved, tell the user they can inspect it with `/review {NNN}` (or `sdlc review {NNN}`) before invoking `/land {NNN}`; `/land` remains the next human gate.
+A component with no MUST FIX must include **Clean-Pass Evidence** covering ticket intent/ACs, plan steps/deviations, canonical sibling conventions, tests/failure paths, and applicable security, data, performance, accessibility, and operational surfaces. There is no requirement to invent findings. Missing/duplicate/malformed verdicts, identity gaps, or clean approval without this evidence receive one retry against the same HEAD; the retry does not consume a round. A second malformed result labels the epic `human`, records evidence, and stops.
+
+For each non-gating escalation above, mutate only the epic under this actor:
+
+```bash
+BEADS_ACTOR="<session-actor>" bd update <epic-id> --add-label human --append-notes="escalation: <reviewer unavailable, malformed output, or convergence evidence>"
+```
+
+### Aggregate artifact
+
+Write exactly one `thoughts/reviews/{NNN}-round{n}.md` per completed round, with component reports verbatim in deterministic reviewer-name order:
+
+```md
+# Automated Review - {NNN} round {n}
+Reviewed code SHA: <reviewed HEAD>
+Approved plan SHA256: <hex>
+Approved plan commit: <main SHA>
+Reviewers: <comma-separated names>
+
+## <reviewer-name>
+<component report verbatim>
+
+## Overall
+
+Scope-Check: PASS - unplanned=none
+AC-Coverage: PASS - verified=AC-001,AC-002; missing=none
+Fix-Disposition: N/A
+
+- <reviewer-name>: <component verdict>
+
+Verdict: <aggregate verdict>
+```
+
+For later rounds use `Fix-Disposition: fixed=<ids|none>; persists=<ids|none>; new=<ids|none>`. `Scope-Check` is `FAIL` with a comma-separated unplanned path list when actual code scope is not declared by active plan steps. `AC-Coverage` is `FAIL` when evidence does not verify every live, non-waived AC. A failed structured check blocks the aggregate. Reconcile all component IDs and counts; an old ID may disappear only as `fixed` and an unverifiable fix `persists`.
+
+Before persisting, require every failed Scope/AC control to be represented by at least one applicable component MUST FIX with a stable ID. If the parent detects a failed control that every component missed, return the concrete control evidence to the applicable reviewer for one same-HEAD contract retry. If it still returns no corresponding finding, treat the round as malformed, escalate `human`, and stop. Never emit a blocking aggregate with a zero MUST FIX count or silently convert a parent-only failure into approval.
+
+The `Verdict:` in `## Overall` is the unique final standalone line in the file. Sum MUST FIX counts when blocked; otherwise sum NIT counts or approve bare. Commit only the aggregate artifact for that round.
+
+### Convergence
+
+- After the first blocked aggregate, fix every actionable MUST FIX, rerun gates, commit/push fixes, and start a complete fresh round against the new HEAD.
+- If a later aggregate MUST FIX count is greater than or equal to the previous completed round, persist/commit/push the evidence, label the epic `human`, and stop immediately. `Fix-Disposition` lets the human distinguish persistence from churn.
+- If the count decreases but remains positive, continue within the three-completed-round cap.
+- If round three remains blocked, persist it, label the epic `human`, and stop.
+- Any code change invalidates every prior component approval and requires the full reviewer set again.
+
+After an approved aggregate is committed, append and push this binding under the session actor:
+
+```text
+review: APPROVED sha=<artifact-commit HEAD> code-sha=<Reviewed code SHA> plan-sha256=<approved hex> plan-commit=<approved main SHA> rounds=<n>
+```
+
+Push the branch and Beads data where remotes exist. Report completed steps, gates, open dedicated gates or escalations, review verdict, approved plan identity, and worktree path. Never merge main; `/land {NNN}` remains the human gate.

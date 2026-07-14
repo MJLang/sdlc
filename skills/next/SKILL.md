@@ -1,36 +1,64 @@
 ---
 name: next
-version: 0.2.0
-description: Autonomous loop dispatcher — perform exactly one legal pipeline transition (plan an approved ticket, or implement an approved plan) and queue the human gates. Designed to be driven by /loop.
+version: 0.3.0
+description: Autonomous dispatcher that performs exactly one legal plan or implement transition and reports human gates. Use as one iteration of an unattended loop.
 disable-model-invocation: true
 ---
 
-Run ONE iteration of the ticket → plan → implement pipeline (`thoughts/AGENTS.md`). Strictly non-interactive: never ask the user anything; flag decisions with the `human` label (`bd update <id> --add-label human`).
+Run exactly one iteration of the pipeline in `thoughts/AGENTS.md`. Never ask a question, cross a human gate, or perform a second transition after the selected transition completes or refuses.
 
-## Derive state — from disk and beads only, never from memory of past sessions
+## Root session and snapshot
 
-Spawn ONE read-only `pipeline-snapshot` subagent to collect the snapshot and return it as a compact table, no prose. When installed through `sdlc setup`, this role uses Haiku in Claude Code and `gpt-5.6-luna` with medium reasoning effort in Codex. If the named profile or model is unavailable, use the runtime's cheapest available read-only subagent and include the fallback in the returned `Model` column. Do not gather inline: in loop mode this runs every iteration, and the driver's context must stay small for the `/implement` that may follow.
+1. Establish one unique root actor for possible mutation, with `<runtime>` set to the current runtime:
 
-1. Plans: `Status` + `Beads Epic` of every file in `thoughts/plans/`.
-2. Tickets: `Status` of every file in `thoughts/tickets/`.
-3. Live: `bd ready`, `bd list --status=in_progress`, `bd human list`, and per in-flight epic: claim holder + last-activity times.
-4. In-flight file sets: for every plan that is `approved` with open epic issues, the union of the files its steps declare.
+   ```bash
+   sdlc actor <runtime> --new
+   ```
 
-The subagent gathers facts only. The transition decision below — legality, overlap, claim semantics — is made HERE, by you, from the snapshot.
+   Capture the printed identity as `<session-actor>` and propagate that exact literal unchanged into `/implement`. The actor is also persisted in Git-common state for worktree visibility, but every child mutation uses `BEADS_ACTOR="<session-actor>"`; do not rely on shell-export persistence or an unqualified latest-actor lookup, and do not generate another actor in the child transition.
+2. Spawn one `pipeline-snapshot` subagent to gather facts only and return a compact table. Use the configured cheap profile; if unavailable, use the cheapest isolated read-only subagent and report the fallback model. Do not gather inline.
+3. Mechanically constrain every subagent Beads command to `bd --readonly`. Its snapshot includes:
+   - canonical ticket/plan paths, statuses, `Beads Epic`, declared active-step file union, and latest review note;
+   - `sdlc doctor {NNN} --json` state and recovery for every active number;
+   - `bd --readonly ready --json`, in-progress issues and claim actors, `bd --readonly human list --json`, and `bd --readonly gate list --json`; for each open gate, resolve its blocked issue with `bd --readonly dep list <gate-id> --direction=up --type=blocks --json` because the Beads 1.1 gate-list payload omits that edge;
+   - `bd --readonly context --json`, `bd --readonly worktree list --json`, `bd --readonly stale --status=in_progress --days=1 --json`, `bd --readonly orphans --json`, and `bd --readonly dep cycles --json`; configured server mode additionally uses both guarded `doctor --agent` and `doctor --server` JSON checks (Beads 1.1 embedded mode does not implement agent-doctor JSON);
+   - read-only Git/worktree activity needed to corroborate candidate stale claims and declared-file overlap;
+   - `bd --readonly merge-slot check --json` only when Project Configuration enables merge slots.
 
-## Pick the highest-priority legal transition — first match wins, execute exactly one
+The subagent does not resolve gates, label issues, claim work, repair Beads, or decide transitions. Make legality and overlap decisions here from its snapshot.
 
-1. **Implement**: a plan with `Status: approved`, an epic recorded, open issues in the epic, the epic NOT claimed/in_progress by another session, **and no overlap between its declared file set and any in-flight plan's** → invoke `/implement {NNN}`. It claims first; if the claim fails, treat the plan as owned elsewhere and fall through to the next candidate. Candidates skipped for file overlap are reported, never silently dropped.
-2. **Plan**: a ticket with `Status: approved` and no plan file with its number → invoke `/plan {NNN}`.
-3. **Idle**: no legal transition → report idle immediately and stop. Keep this path cheap — no research, no subagents.
+## Select one transition
 
-## Never
+Use deterministic number order within each priority. First legal match wins.
 
-- Never perform `/approve`, `/land`, `/cancel`, or `/chore` — those are human gates. Instead, end every report with the **human queue**:
-  - plans in `Status: review` (awaiting `/approve`),
-  - plans whose epic notes carry an APPROVED review verdict (awaiting `/land`),
-  - anything in `bd human list`,
-  - **stale claims** — epics claimed/in_progress with no beads or git activity for >24h: likely a crashed session; a human should unclaim, after which `/implement` resumes cleanly.
-- Never ask questions. On ambiguity, flag the nearest issue with the `human` label and move on.
+1. **Implement first.** Select only a plan for which:
+   - doctor is `healthy`;
+   - status is `approved`, the epic exists, and active children remain open;
+   - at least one child is ready and not blocked by a dedicated gate (other gated children remain visible and do not freeze unrelated work);
+   - no different actor owns its epic or selected work;
+   - no unresolved orphan-recovery or corroborated stale/crashed-claim condition makes execution ambiguous; and
+   - its declared active-step files do not overlap the union for any other in-flight plan.
 
-One transition per invocation. When it completes (or refuses), report and stop — the outer `/loop` schedules the next iteration.
+   Invoke `/implement {NNN}` with the inherited actor. A claim race or implementation refusal ends this invocation and is reported; do not fall through to another plan or ticket.
+2. **Plan second.** Select an approved ticket with no active plan only when doctor reports `ready_for_planning`. Invoke `/plan {NNN}`. Its completion or refusal ends this invocation.
+3. **Idle.** If neither exists, report idle immediately without research or additional agents.
+
+Plans skipped for overlap remain visible with the conflicting plan/path set. Never silently drop them.
+
+## Human queue in every report
+
+Report compactly:
+
+- `ready_for_approval` plans -> `/approve {NNN}`;
+- approved aggregate reviews bound to current code and plan hashes -> `/land {NNN}`;
+- `reapproval_required` -> `/approve {NNN}`;
+- `legacy` -> explicit migration or permitted completed-work closeout;
+- `blocked` -> doctor's exact correction/recovery action;
+- open dedicated gates -> gate ID, blocked step, reason, and `BEADS_ACTOR="<new-session-actor>" bd gate resolve <gate-id> --reason="<resolution>"`;
+- `human`-labeled non-gating escalations;
+- orphaned issue-bearing commits -> verify the commit/issue/gates and recover explicitly, never auto-close;
+- candidate stale claims only when Beads age and Git/worktree inactivity agree; report the current actor and the human recovery `BEADS_ACTOR="<new-session-actor>" bd update <claimed-id> --status=open --assignee="" --append-notes="claim recovery: <evidence>"`, but never execute it;
+- enabled merge-slot contention -> holder and age; never wait or release it;
+- draft tickets awaiting human ticket approval.
+
+Never invoke `/approve`, `/review`, `/land`, `/cancel`, or `/chore`; never call `bd doctor --fix`, `bd orphans --fix`, resolve a gate, or mutate labels merely to make work runnable. One transition per invocation, including a refused attempt.

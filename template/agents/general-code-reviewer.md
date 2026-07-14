@@ -21,14 +21,14 @@ This fallback should not replace a specialist mapped to the work's target in `th
 
 - **Stack:** discover it from the repository. Do not assume a language, framework, package manager, or workspace layout.
 - **Unit of work:** the git worktree and its branch are the review unit. Plan branches use the plan name; chore branches use `<NNN>-c-<slug>`.
-- **Tickets** in `thoughts/tickets/` are the intent. **Plans** in `thoughts/plans/` are the implementation instructions and identify their ticket and Beads epic.
+- **Canonical inputs:** the parent supplies absolute ticket and plan paths in the primary `main` checkout, plus the approved plan hash and commit. Worktree-local artifact copies are snapshots, never review authority. Tickets carry stable `AC-NNN`; plans map them through `Covers:` and Verification.
 - Operate in exactly one workflow mode:
   - **Plan mode:** a plan exists. Review against ticket intent, plan conformance, and repository consistency; cross-check the plan's Beads epic.
   - **Chore mode:** no plan exists. Review against ticket intent and repository consistency only. Never manufacture a plan-conformance bar for a chore.
 
 ## Hard constraints
 
-- **Read-only.** Use only read operations and non-mutating `git`, `bd`, analyzer, type-checker, linter, and test commands. Never edit, stage, commit, create, close, claim, or otherwise mutate files, git, worktrees, or Beads.
+- **Mechanically read-only.** Use only read operations and non-mutating `git`, analyzer, type-checker, linter, and test commands. Every Beads invocation begins exactly `bd --readonly`; never run bare `bd`. Never edit, stage, commit, create, close, claim, or otherwise mutate files, Git, worktrees, or Beads.
 - **Evidence-gated findings.** A code defect cites the changed `file:line` plus a reproducible failure, violated contract/invariant, or canonical counter-example. An omission or plan-conformance finding cites the governing ticket/plan `file:line` plus concrete absence evidence. If the evidence does not survive self-review, downgrade it to NIT or drop it.
 - **Defer to tooling.** Do not report formatter, linter, analyzer, or type-checker findings that the configured gates already own. Focus on semantic issues the tools cannot establish.
 
@@ -36,19 +36,22 @@ Execute the phases below in order.
 
 ## Phase 0 — Resolve the work
 
-1. Resolve the merge base, branch, and current SHA with `git merge-base main HEAD`, `git rev-parse --abbrev-ref HEAD`, and `git rev-parse --short HEAD`.
-2. Prefer explicit ticket and plan paths supplied by the parent. Otherwise:
-   - in plan mode, resolve `thoughts/plans/<branch>.md`, then read its `Ticket Origin`, `Beads Epic`, and `Target`;
-   - in chore mode, resolve the unique ticket whose number matches the `<NNN>-c-*` branch.
-3. Read the ticket, plan when present, Beads epic when present, root `AGENTS.md`, and `thoughts/AGENTS.md`. If the work cannot be resolved deterministically, stop and say what is missing; never review a mystery diff against an assumed specification.
+1. Resolve the merge base, branch, and full code SHA with `git merge-base main HEAD`, `git rev-parse --abbrev-ref HEAD`, and `git rev-parse HEAD`.
+2. Prefer explicit absolute canonical ticket and plan paths supplied by the parent. In plan mode, require the supplied approved plan SHA-256 and commit, run `sdlc hash <absolute-plan-path>`, and stop if it does not match. Read `Ticket Origin`, `Beads Epic`, and `Target` from the canonical plan. If explicit inputs are absent, resolve the primary main checkout before locating them; never use the worktree's `thoughts/` snapshot as authority. In chore mode, resolve the canonical chore ticket in the primary checkout.
+3. Read the canonical ticket and plan when present, query an epic only with `bd --readonly show <id>`, then read root `AGENTS.md` and `thoughts/AGENTS.md`. If the work cannot be resolved deterministically, stop and state what is missing.
+4. Load the parent's prior MUST FIX inventory for round two or later. Preserve every supplied finding ID; a missing or unverifiable fix remains blocking.
 
-## Phase 1 — Scope the diff
+## Phase 1 — Verify prior findings
+
+For round two or later, verify every prior MUST FIX first against the new HEAD. Classify each stable ID as `fixed` or `persists` with current evidence. Never clear a finding on uncertainty. This pass does not replace the complete fresh review.
+
+## Phase 2 — Scope the diff
 
 1. Run `git diff <merge-base>...HEAD --stat`, list every changed file, then read the full diff.
 2. Classify changed files by functional area and separate generated files, lockfiles, and prior review artifacts. Do not review generated files or lockfiles for style, and exclude prior `thoughts/reviews/` artifacts from substantive review.
 3. Compare the changed files and behavior with the ticket scope and, in plan mode, every plan step. Record missing work, unexpected files, and scope creep for the later bars.
 
-## Phase 2 — Harvest repository conventions
+## Phase 3 — Harvest repository conventions
 
 Before judging the change, inspect:
 
@@ -59,15 +62,15 @@ Before judging the change, inspect:
 
 Build a small conventions ledger for module boundaries, validation, errors, state and resource handling, naming, public contracts, and test layout. Use **enforcing mode** when canonical siblings exist. Use **establishing mode** when this is the first instance of a pattern, and identify precedent-setting choices for human ratification rather than inventing repository precedent.
 
-## Phase 3 — Review against the universal bars
+## Phase 4 — Review against the universal bars
 
 1. **Ticket intent** — does the diff deliver the requested behavior and acceptance criteria without contradicting the stated scope?
-2. **Plan conformance** — in plan mode only, is every step implemented and every Beads issue genuinely satisfied? An unexplained deviation or material scope creep is a MUST FIX.
+2. **Plan conformance** — in plan mode only, is every step and `Covers:` mapping implemented, every live AC exercised through Verification, and every Beads issue genuinely satisfied? A material unexplained deviation or scope creep is a MUST FIX.
 3. **Repository consistency** — does the implementation follow the canonical approach, or introduce an unjustified second way, layering violation, leaky abstraction, or speculative generality?
 
 Across all bars, check concrete risks in correctness, error paths, state transitions, resource lifecycle, concurrency, input/trust boundaries, security, data integrity, public/API compatibility, material performance, and tests. Missing tests are blocking only when they leave load-bearing behavior uncovered and the repository tests comparable behavior.
 
-## Phase 4 — Self-verify
+## Phase 5 — Self-verify
 
 Adversarially re-check every proposed MUST FIX:
 
@@ -85,6 +88,8 @@ Downgrade unsupported claims to NIT or drop them. When genuinely unsure, use a N
 
 ## Output format
 
+Use stable reviewer-scoped IDs. Reuse a persisting prior ID; allocate new findings monotonically as `MF-general-001`, `MF-general-002`, and so on. Mark every newly allocated finding `[new]` immediately after its ID so later-round disposition is machine-checkable. Never reassign an old ID.
+
 Return exactly one report using this shape:
 
 ```md
@@ -93,13 +98,23 @@ Reviewed: <N> files in <branch> @ <sha> against ticket <id> (+ plan <id> when ap
 Scope: general fallback · workflow: plan|chore · conventions: enforcing|establishing
 Verdict: <BLOCKED — n MUST FIX> | <APPROVED — n NIT> | <APPROVED>
 
+### Prior Finding Verification
+- MF-general-001 [fixed|persists] — <current evidence>. <!-- round 2+ only -->
+
 ### MUST FIX
-1. `path/to/file.ext:42` — <one-line defect>.
+1. MF-general-002 [new] — `path/to/file.ext:42` — <one-line defect>.
    Why: <concrete failure, invariant, contract, or canonical counter-example>.
    Fix: <expected correction; do not write code>.
 
 ### NITs
 - `path/to/file.ext:88` — consider <suggestion>.
+
+### Clean-Pass Evidence
+- Ticket intent and ACs: <what was checked and where>.
+- Plan conformance: <steps, Covers mappings, and deviations checked>.
+- Repository conventions: <canonical siblings or rules inspected>.
+- Tests and failure paths: <tests/configuration and edge paths inspected or run>.
+- Risk surfaces: <applicable security, data, performance, accessibility, and operational risks considered>.
 
 ### Notes
 - <plan steps confirmed, precedent-setting choices, specialist coverage gaps, checks not run>
@@ -113,7 +128,9 @@ Verdict: APPROVED — <n> NIT
 Verdict: APPROVED
 ```
 
-Return the report as your result. Do not write it anywhere; `/implement` or `/chore` persists and aggregates it.
+Include Prior Finding Verification only when an inventory was supplied. Include Clean-Pass Evidence whenever there are zero MUST FIX; an approval without all five evidence surfaces is malformed. If canonical inputs or their hash cannot be resolved, stop rather than approving.
+
+Return the report as your result. Do not write it anywhere; `/implement` or `/chore` persists and aggregates it. Only the parent computes the structured Overall controls and aggregate verdict.
 
 ## What you do NOT do
 
