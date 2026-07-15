@@ -47,9 +47,9 @@ For round two or later, verify every prior MUST FIX first against the new HEAD. 
 
 ## Phase 2 — Scope the diff
 
-1. Run `git diff <merge-base>...HEAD --stat`, list every changed file, then read the full diff.
-2. Classify changed files by functional area and separate generated files, lockfiles, and prior review artifacts. Do not review generated files or lockfiles for style, and exclude prior `thoughts/reviews/` artifacts from substantive review.
-3. Compare the changed files and behavior with the ticket scope and, in plan mode, every plan step. Record missing work, unexpected files, and scope creep for the later bars.
+1. Consume the supplied `sdlc review-packet`, verify its HEAD, and read the lane-scoped diff in full.
+2. Use the complete changed-file inventory for whole-change awareness and inspect listed cross-lane interfaces lightly. Binary, unreadable, and unmatched files remain explicit inventory-only fallbacks.
+3. Read beyond the packet only for a concrete correctness question, state every extra path/diff, and compare lane-relevant steps with the inventory for missing work or scope creep.
 
 ## Phase 3 — Harvest repository conventions
 

@@ -1,6 +1,6 @@
 ---
 name: chore
-version: 0.3.0
+version: 0.4.0
 description: Human-gated lightweight lane that takes one small low-risk change through an AC-tagged ticket, native Beads ownership/worktree, structured review, merge, and post-merge memory audit without a plan or epic.
 argument-hint: <short description of the small change>
 disable-model-invocation: true
@@ -27,7 +27,9 @@ If implementation outgrows the boundary, stop without merging, keep the ticket/w
    sdlc actor <runtime> --new
    ```
 
-   Capture the printed value as `<session-actor>` and carry that exact literal through this invocation. It is also persisted in Git-common state for worktree visibility, but an unqualified latest-actor lookup cannot distinguish overlapping same-runtime roots. Agent tool calls may use fresh shells, so prefix every mutating Beads command with `BEADS_ACTOR="<session-actor>"`; never rely on a prior `export`.
+   Capture the literal and carry it unchanged through this invocation. Per the
+   contract actor invariant, prefix every mutation with
+   `BEADS_ACTOR="<session-actor>"`; never rely on shell export or an older actor.
 
 3. Require Beads `>=1.1.0` and the native gate/worktree/read-only capabilities; never fall back to labels or raw Git worktrees. Every observation uses `bd --readonly`. In embedded mode, Beads 1.1 does not implement JSON `doctor --agent`, so use `bd --readonly context --json` plus the focused gate, dependency, worktree, stale, orphan, and claim checks. In server mode also require `bd --readonly doctor --agent --json` and `bd --readonly doctor --server --json`. Never repair automatically.
 
@@ -57,7 +59,9 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
 ## Implement and gate
 
 1. Edit only inside the worktree. Give any implementer the absolute canonical ticket path and ACs; worktree artifact snapshots are not authoritative.
-2. Run Project Configuration gates plus applicable target test/typecheck/build commands. Commit and push code.
+2. Run `sdlc gates --cwd <worktree> --target <target>`. Use its bounded failure
+   excerpt/full-log path, then commit and push only after every configured gate
+   passes.
 3. If a human decision or external/destructive action becomes necessary, keep the chore open and create:
 
    ```bash
@@ -69,8 +73,17 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
 
 ## Structured review - at most two completed rounds
 
-1. Derive reviewers from actual changed lanes, excluding prior review artifacts. Use configured reviewers and `general-code-reviewer` for unmapped lanes; union duplicate scopes. Recompute each round. An unavailable named reviewer labels the chore `human` as a non-gating escalation and stops.
-2. Capture a clean immutable code HEAD. All reviewers use canonical ticket input, exact ACs and scope, and `bd --readonly`; run against that HEAD. In round two, verify prior stable `MF-<reviewer>-NNN` IDs first, then perform a complete fresh review.
+1. Run `sdlc review-packet {NNN} --head <reviewed-head> --json`. Chore packets
+   carry ticket intent/live ACs with `N/A` plan identity, lane-scoped diffs,
+   complete inventory, cross-lane interfaces, gate summaries, and prior
+   findings. Use the derived reviewers (including explicit unmapped fallback),
+   union duplicate scopes, and recompute every round. An unavailable named
+   reviewer labels the chore `human` as a non-gating escalation and stops.
+2. Capture a clean immutable code HEAD. Each reviewer reads its packet's lane
+   diff fully, remains aware of the complete inventory, checks cross-lane
+   interfaces lightly, states any read beyond the packet, and uses
+   `bd --readonly`. In round two, verify prior stable `MF-<reviewer>-NNN` IDs
+   first, then perform the complete lane review against the new packet.
 3. Require exactly one component verdict using the repository's exact grammar:
 
    ```text
@@ -111,7 +124,10 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
 ## Merge and post-merge memory
 
 1. If Project Configuration enables Beads merge slots, require a previously initialized slot, then run `BEADS_ACTOR="<session-actor>" bd merge-slot acquire --holder="<session-actor>" --json` before final fetch/rebase/pull/merge, omitting `--wait`. A missing slot stops with `BEADS_ACTOR="<new-session-actor>" bd merge-slot create`; a held slot stops and reports holder/age. When disabled, do not use the feature.
-2. Refresh main and the worktree. A conflict requires human resolution and fresh full review. After a clean rebase, rerun gates and record `rebased: <old>-><new> gates=pass`; any code edit invalidates review.
+2. Refresh main and the worktree. A conflict requires human resolution and fresh
+   review. After a clean rebase, rerun
+   `sdlc gates --cwd <worktree> --target <target>` and record
+   `rebased: <old>-><new> gates=pass`; any code edit invalidates review.
 3. In clean primary main, squash the branch, stage the canonical ticket with `Status: implemented`, and create exactly one `chore: <title> (ticket {NNN})` merge commit.
 4. Only now audit tagged memories against the merged tree and staged candidates using the same keep/refresh/merge/forget conservatism as `/land`. Every added/refreshed memory cites `Source: chore {NNN}, merge commit <sha>`. Append `memory audit: merge=<sha>; kept=...; refreshed=...; merged=...; forgot=...; added=...` to the chore Bead.
 5. If memory work fails, leave the merge commit intact, stop before close/push/cleanup, and record enough completed/pending state for an idempotent resume. Never merge a second time. Retain an acquired merge slot for this incomplete landing when safe; release it only after proving main clean and recording the incomplete merge SHA.

@@ -1,6 +1,6 @@
 ---
 name: ticket
-version: 0.3.0
+version: 0.4.0
 description: Create a new work ticket in thoughts/tickets from an idea. Use when the user describes a feature, bug, refactor, or chore that should enter the ticket-to-plan-to-implement pipeline.
 argument-hint: <one-line idea or description>
 ---
@@ -15,7 +15,7 @@ Create the intent artifact for `$ARGUMENTS` under the pipeline in `thoughts/AGEN
    - a configured Project Configuration target;
    - 2-5 stable lowercase retrieval tags, starting with the target and followed by useful domain or technology terms.
 
-   Ground the choice in `thoughts/docs/`. Ask when target or tags are materially ambiguous. In an unattended caller, make the safest reasonable choice and record the assumption under Open Questions.
+   Search `thoughts/docs/INDEX.md` first. Load the product overview plus rows whose target/tags match the idea, and expand to another document only when the indexed evidence remains ambiguous. Ask when target or tags are materially ambiguous; in an unattended caller, make the safest reasonable choice and record the assumption under Open Questions.
 3. Write `thoughts/tickets/{NNN}-{kebab-case-title}.md`:
 
    ```yaml
@@ -32,6 +32,7 @@ Create the intent artifact for `$ARGUMENTS` under the pipeline in `thoughts/AGEN
    - **Scope** - explicit in-scope and out-of-scope boundaries;
    - **Acceptance Criteria** - at least one checkable outcome, each allocated as `AC-NNN`;
    - **Open Questions** - unresolved product or priority decisions; `None` is valid.
+   - **Documentation Sources** - the index rows/documents that informed the ticket, or `None`.
 
    Use this acceptance-criterion form:
 

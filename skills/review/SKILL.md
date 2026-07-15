@@ -1,6 +1,6 @@
 ---
 name: review
-version: 0.3.0
+version: 0.4.0
 description: Prepare an implemented plan's Beads-visible worktree, approved-plan identity, diff, and persisted aggregate review for local human inspection without changing pipeline state.
 ---
 
@@ -16,22 +16,22 @@ Require `<NNN>`; never guess among plans.
 
 ## Procedure
 
-1. From the primary checkout, run `sdlc doctor <NNN> --json` and `sdlc review <NNN>`. Every Beads query made directly or by a delegated observer must be `bd --readonly ...`.
+1. From the primary checkout, run `sdlc guard review <NNN>` and then
+   `sdlc review <NNN>`. The guard's `pending|existing` matrix proves child,
+   gate/escalation, worktree, approval, and aggregate-artifact invariants. On
+   refusal, run `sdlc doctor <NNN> --json` only when its coded recovery needs
+   more detail. Every Beads query remains `bd --readonly ...`.
 2. Resolve and display prominently:
    - absolute canonical ticket and plan paths in primary main;
    - latest reproducible approved plan SHA-256 and approval commit;
    - Beads epic and current doctor state;
    - native Beads-visible worktree path, branch HEAD, merge base, dirty state, and diff stat;
-   - latest `thoughts/reviews/<NNN>-round*.md`, its Reviewed code SHA, approved plan SHA/commit, structured Overall checks, and final verdict.
+   - latest `thoughts/reviews/<NNN>-round*.md`, reading only its identity header
+     and `## Overall` block after the guard accepts it.
 3. Treat worktree ticket/plan copies as snapshots. Report skew as informational and keep linking the canonical main files; never recommend copying or rebasing amended artifact text into the worktree.
-4. Validate the handoff facts without mutation:
-   - aggregate/component verdict grammar is valid and consistent;
-   - `Scope-Check`, `AC-Coverage`, and `Fix-Disposition` parse and reconcile;
-   - the review note binds the artifact commit and Reviewed code SHA;
-   - the artifact's approved plan hash/commit equals the epic's latest reproducible approval;
-   - the reviewed HEAD is current or connected only by the permitted recorded clean-rebase chain.
-
-   Warn plainly when the artifact is missing, malformed, blocked, stale against code, or bound to a different plan approval. Such work is not ready to land. Likewise surface doctor `reapproval_required`, `legacy`, or `blocked` with its exact recovery action.
+4. Use the guard result for component grammar, structured controls, review-note
+   and plan-approval bindings, and clean-rebase-chain validation. Warn plainly
+   on a refusal; such work is not ready to land.
 5. Run an optional action only when the user explicitly requested its flag:
    - `--editor`: open the configured editor at the worktree;
    - `--artifact`: open the persisted aggregate report;
