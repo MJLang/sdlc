@@ -1,6 +1,6 @@
 ---
 name: cancel
-version: 0.3.0
+version: 0.4.0
 description: Human gate that safely cancels a ticket/plan/Beads/worktree line of work, or cancels only its plan for explicit re-planning, using native ownership and worktree safeguards.
 argument-hint: <number> [plan]
 disable-model-invocation: true
@@ -47,7 +47,9 @@ After confirmation and before the first Beads mutation, establish one unique act
 sdlc actor <runtime> --new
 ```
 
-Capture the printed value as `<session-actor>` and carry that exact literal through this invocation. It is also persisted in Git-common state for worktree visibility, but an unqualified latest-actor lookup cannot distinguish overlapping same-runtime roots. Agent tool calls may use fresh shells, so prefix every mutating Beads command with `BEADS_ACTOR="<session-actor>"`; never rely on a prior `export`.
+Capture the literal and carry it unchanged through this invocation. Per the
+contract actor invariant, prefix every mutation with
+`BEADS_ACTOR="<session-actor>"`; never rely on shell export or an older actor.
 
 1. For a worktree, first run native safe removal:
 

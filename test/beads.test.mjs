@@ -123,6 +123,7 @@ test('native diagnostics use only read-only helpers', () => {
   const adapter = {
     connectionContext: () => (called.push('context'), { mode: 'server' }),
     listReady: () => (called.push('ready'), []),
+    listInProgress: () => (called.push('in-progress'), []),
     doctor: ({ server = false } = {}) => ({ ok: true, data: { server }, error: null }),
     dependencyCycles: () => (called.push('cycles'), []),
     listWorktrees: () => (called.push('worktrees'), []),
@@ -133,7 +134,7 @@ test('native diagnostics use only read-only helpers', () => {
     mergeSlotCheck: () => ({ ok: true, data: { available: true } }),
   };
   const result = collectNativeDiagnostics(adapter, { mode: 'server', mergeSlotEnabled: true });
-  assert.deepEqual(called, ['context', 'ready', 'cycles', 'worktrees', 'gates', 'escalations', 'stale', 'orphans']);
+  assert.deepEqual(called, ['context', 'ready', 'in-progress', 'cycles', 'worktrees', 'gates', 'escalations', 'stale', 'orphans']);
   assert.equal(result.serverHealth.data.server, true);
   assert.equal(result.mergeSlot.data.available, true);
 });
@@ -142,6 +143,7 @@ test('embedded diagnostics use focused JSON checks instead of unsupported agent 
   const adapter = {
     connectionContext: () => ({ mode: 'embedded' }),
     listReady: () => [],
+    listInProgress: () => [],
     doctor: () => { throw new Error('embedded doctor must not be called'); },
     dependencyCycles: () => [],
     listWorktrees: () => [],

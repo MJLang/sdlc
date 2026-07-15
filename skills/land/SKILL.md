@@ -1,6 +1,6 @@
 ---
 name: land
-version: 0.3.0
+version: 0.4.0
 description: Human gate that verifies the reviewed code and approved-plan fingerprint, optionally acquires the Beads merge slot, squash-merges to main, performs the post-merge memory audit, and safely closes and cleans up.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true
@@ -19,19 +19,20 @@ In post-merge recovery, validate the existing merge commit and then skip **Fresh
 
 ## Read-only preflight
 
-Make `sdlc doctor {NNN} --json` the first action. In normal mode require `healthy`. In post-merge recovery, doctor may report the expected terminal-artifact drift; accept only when the existing local merge commit contains the exact reviewed tree and status flips and the pre-merge approval/review chain still reproduces. Any unrelated doctor error remains blocking. A completed legacy plan may use only the documented legacy closeout path when all issues are closed and its valid legacy approval predates this contract; warn prominently. Open legacy work requires `/approve` migration.
+Make `sdlc guard land {NNN}` the first action. The `normal` matrix row proves
+unique canonical/Beads/worktree identity, closed children, no open gate,
+escalation or orphan ambiguity, reproducible approval hashes, a clean worktree,
+an approved aggregate grammar and HEAD binding, and resolved dedicated-gate
+evidence for every consent-requiring open `AA-NNN`. The
+`post-merge-recovery` row accepts only the terminal status/merge evidence it can
+prove and returns `semantic-recovery-proof-required` for the remaining human
+tree-equivalence judgment. Any other result refuses; run
+`sdlc doctor {NNN} --json` only when the coded recovery needs expanded evidence.
 
-Verify all of the following before main-sensitive work:
-
-1. Plan, ticket, epic, and native Beads-visible worktree resolve uniquely. Every active child is closed and no dedicated gate is open. Any `human` escalation must be resolved explicitly; do not waive it merely because `/land` was invoked.
-2. The latest epic approval record is reproducible from its main-reachable commit. Its plan/ticket hashes match the canonical pre-merge artifacts and the plan's source-ticket hash.
-3. The latest aggregate artifact exists and is internally valid: expected reviewer set, component verdicts, stable finding dispositions, `Scope-Check`, `AC-Coverage`, `Fix-Disposition`, and unique final Overall verdict all reconcile. Overall must be `APPROVED` or `APPROVED` with NITs.
-4. Its Approved plan SHA256/commit equal the epic's latest approval. Any plan amendment after review invalidates the review even if code HEAD is unchanged.
-5. The epic review note binds the artifact-commit HEAD, Reviewed code SHA, approved plan hash/commit, and rounds. Current worktree HEAD must equal that artifact commit or be connected only by a recorded clean-rebase chain whose gates passed. Any other code commit requires `/implement` review again.
-6. The worktree is clean. Native diagnostics show no unresolved corruption, dependency cycle, orphan ambiguity, or cleanup safety blocker relevant to landing.
-7. Every Approval Attention item that required execution-time consent has a matching resolved dedicated-gate record naming its `AA-NNN` and decision. An unresolved item blocks landing; plan approval alone is not consent, and resolution does not require rewriting the canonical plan mid-flight.
-
-Every Beads observation uses `bd --readonly`. Never invoke a repair command automatically.
+After an accepted normal guard, read only the aggregate identity header and
+`## Overall` block. Every Beads observation remains `bd --readonly`; never run a
+repair command. Completed legacy work uses only the explicit closeout path;
+open legacy work requires `/approve` migration.
 
 ## Session actor and optional merge slot
 
@@ -41,7 +42,9 @@ Before the first Beads mutation, set one unique root actor:
 sdlc actor <runtime> --new
 ```
 
-Capture the printed value as `<session-actor>` and carry that exact literal through this invocation. It is also persisted in Git-common state for worktree visibility, but an unqualified latest-actor lookup cannot distinguish overlapping same-runtime roots. Agent tool calls may use fresh shells, so prefix every mutating Beads command with `BEADS_ACTOR="<session-actor>"`; never rely on a prior `export`.
+Capture the literal and carry it unchanged through this invocation. Per the
+contract actor invariant, prefix every mutation with
+`BEADS_ACTOR="<session-actor>"`; never rely on shell export or an older actor.
 
 Read `Beads merge slot` from Project Configuration.
 
@@ -60,14 +63,17 @@ Track whether this invocation acquired the slot. On any failure, release it only
 
 1. Fetch in the Beads-visible worktree. If remote main moved, rebase the plan branch onto latest main.
 2. On conflict, stop for semantic resolution and require a fresh full `/implement` review. If primary main is proven clean, release an acquired slot before returning.
-3. After a clean rebase, run all Project Configuration and target gates. On success append:
+3. After a clean rebase, run
+   `sdlc gates --cwd <worktree> --target <target>`. On success append:
 
    ```text
    rebased: <old-sha>-><new-sha> gates=pass
    ```
 
    On failure, stop. A clean rebase chain may preserve review validity only under the existing exact-chain rule; any resolution/code edit requires a fresh review.
-4. Re-run doctor/read-only review validation against the post-rebase state. Refuse if plan approval drifted or the review binding is no longer valid.
+4. Re-run `sdlc guard land {NNN}` against the post-rebase state. Refuse if plan
+   approval, review binding, consent evidence, or native safety drifted; expand
+   with full doctor only when needed.
 
 ## Merge once
 
@@ -94,6 +100,11 @@ Run only after the merge commit exists. Do not roll back or rewrite that commit 
 4. Promote only high-signal surviving candidates. Every added/refreshed memory has 2-5 retrieval tags, matching `Index: tag:<tag>` markers, a fact, why it matters, applicability, and:
 
    ```text
+   Tags: <2-5 stable tags>
+   Index: tag:<tag> tag:<tag>
+   Finding: <durable fact>
+   Why: <why it matters>
+   Applies when: <scope>
    Source: plan {NNN}, merge commit <merge-sha>
    ```
 

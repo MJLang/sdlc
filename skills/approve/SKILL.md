@@ -1,6 +1,6 @@
 ---
 name: approve
-version: 0.3.0
+version: 0.4.0
 description: Human gate that commits and approves a reviewed plan, creates its traceable Beads graph and approval hash record, or safely re-syncs an amended approved plan.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true
@@ -25,6 +25,10 @@ Refuse a missing/draft/cancelled/merged plan. Never treat Git and Beads as one a
 - Surface every Open Question and research Remaining Unknown. Resolve it, explicitly defer it outside this plan with a rationale, or record the human's reasoned waiver; never approve by omission.
 - Every unresolved `PC-NNN` blocker or uncovered AC must be corrected or explicitly waived by this human. Record each waiver in the plan and on the epic as `waiver: id=<id>; reason=<reason>` (an AC may additionally be marked `AC-NNN [waived] - reason: <reason>; waived by human`); a silent, negative, or inferred mention is invalid.
 - Plan approval authorizes disclosed repository edits. Approval Attention operations that require execution-time consent remain separate gates.
+- During this human gate, set each Approval Attention status to
+  `approved-in-plan` when plan approval itself grants consent, or leave it
+  `open` when a later execution-time decision is still required. Landing treats
+  every still-open `AA-NNN` as requiring matching resolved-gate evidence.
 - Beads metadata contains identity only, never prose or hashes:
   - epic: `sdlc_ticket=<repo-relative ticket>`, `sdlc_plan=<repo-relative plan>`;
   - child: those keys plus `sdlc_step=<stable number>`.
@@ -33,18 +37,21 @@ Refuse a missing/draft/cancelled/merged plan. Never treat Git and Beads as one a
 
 ## Preflight and actor
 
-1. Resolve exactly one canonical ticket and plan. Run `sdlc doctor {NNN} --json`.
-   - First approval requires `ready_for_approval` after any explicit corrections/waivers.
-   - Amendment accepts only `reapproval_required` caused by the intentional canonical artifact edit. Any structural, Beads-health, capability, dependency, or repository blocker must be fixed first.
-   - `healthy` with a reproducible latest approval is a no-op unless there is a real Beads mapping amendment to reconcile.
-   - `legacy` requires the explicit migration rules below; never silently synthesize semantic AC coverage or waivers.
+1. Run `sdlc guard approve {NNN}`. Its acceptance matrix identifies
+   `first-approval` (`ready_for_approval`), `amendment` (approved plan with
+   intentional canonical drift), or `no-op` (`healthy`). A refusal preserves
+   doctor exit semantics; run `sdlc doctor {NNN} --json` only when the coded
+   recovery lacks needed detail. Legacy work uses the explicit migration rules
+   below and never gains synthesized coverage or waivers.
 2. Before the first Beads mutation, establish a unique root actor. This human gate is a root mutating boundary: set `<runtime>` to the current runtime and run:
 
    ```bash
    sdlc actor <runtime> --new
    ```
 
-   Capture the printed value as `<session-actor>` and carry that exact literal through this invocation. It is also persisted in Git-common state for worktree visibility, but an unqualified "latest actor" lookup is not a concurrency boundary when two same-runtime sessions overlap. Agent tool calls may use fresh shells, so never rely on a prior `export`: prefix every mutating Beads command in this skill with `BEADS_ACTOR="<session-actor>"`. Do not reuse an actor left by an earlier root session.
+   Capture the literal and carry it unchanged through this invocation. Per the
+   contract actor invariant, prefix every mutation with
+   `BEADS_ACTOR="<session-actor>"`; never rely on shell export or an older actor.
 3. Discover existing objects with `bd --readonly` by the plan's `spec-id`, metadata, plan mapping, and epic ID before creating anything. Reuse matching objects from a partial run; never duplicate them.
 
 ## First approval
@@ -108,7 +115,9 @@ For either mode:
    ```
 
    Approval records are append-only. The latest record whose commit is main-reachable and whose committed files reproduce both hashes is authoritative. A later malformed record is a warning, never authority.
-6. Re-run `sdlc doctor {NNN} --json`; require `healthy` for approval, hash, mapping, dependency, and Beads-health checks.
+6. Re-run `sdlc guard approve {NNN}` and require `mode=no-op state=healthy` for
+   the completed approval identity, mapping, dependencies, and Beads health.
+   Run full doctor only after a refusal that needs expanded evidence.
 7. If a remote exists, push Git first, then `BEADS_ACTOR="<session-actor>" bd dolt push`. Report either failure precisely; do not claim both stores synced when only one pushed.
 
 ## Recovery and migration

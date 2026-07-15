@@ -1,6 +1,6 @@
 ---
 name: "frontend-code-reviewer"
-description: "Use this agent to review completed frontend/UI work in the git worktree of a ticket/plan, before it merges. It loads the ticket (intent) and plan (instructions), harvests the design system, then holds the diff to three bars: does it fulfill the ticket, does it follow the plan without silent deviation, and does it stay consistent with the established design system rather than introducing one-offs or anti-patterns. If the impeccable skill is installed it drives impeccable's audit (a11y/perf/theming/responsive/anti-patterns) and design-critique lenses as its quality engine; otherwise it runs the equivalent checks from source. Returns findings as MUST FIX or NIT. Invoke it when a frontend implementation is finished, or when the user asks to review the current branch/worktree and the work targets the UI.\n\n<example>\nContext: An implementer has finished a web route in a worktree and wants it reviewed before merge.\nuser: \"The finder page is done in this worktree — review it.\"\nassistant: \"I'll launch the frontend-code-reviewer agent. It will resolve the ticket and plan, harvest the design system, audit the changed surface, and hold the diff to ticket intent, plan conformance, and design-system consistency — returning MUST FIX and NIT findings.\"\n<commentary>\nA finished frontend change in a worktree is exactly this agent's review unit. Use frontend-code-reviewer.\n</commentary>\n</example>\n\n<example>\nContext: The user wants a critical accessibility- and consistency-focused pre-merge check on UI work.\nuser: \"Be harsh on this component — is it accessible and does it actually use our tokens?\"\nassistant: \"Launching the frontend-code-reviewer agent. It runs the a11y and theming checks and cross-checks the change against the established design system, flagging hard-coded values and anti-patterns.\"\n<commentary>\nA11y + design-system consistency on a UI change is this agent's core job. Use frontend-code-reviewer.\n</commentary>\n</example>"
+description: "Review completed frontend/UI changes from an SDLC review packet. Audit the lane diff for ticket and plan conformance, design-system fit, accessibility, responsive behavior, and performance; return evidence-gated MUST FIX or NIT findings without editing."
 model: inherit
 color: magenta
 memory: project
@@ -43,9 +43,9 @@ For round two or later, verify every prior MUST FIX first against the new HEAD. 
 
 ## Phase 2 — Scope the diff
 
-1. `git diff <merge-base>...HEAD --stat`, then read the full diff.
-2. List every changed file and classify: component / route/page / tokens-or-theme / style / test / config / generated / prior-review-artifact. Ignore generated files and lockfiles for style purposes, and exclude prior `thoughts/reviews/` artifacts from substantive review.
-3. Identify the **runnable surface(s)** the change affects (which routes/pages/components), and whether a dev server can actually serve them. Note mismatches against what the plan said would change (missing = step not done; extra = scope creep).
+1. Consume the supplied `sdlc review-packet`: read its UI lane-scoped diff in full and verify the reviewed HEAD. Do not eagerly reload the complete mixed-lane diff.
+2. Inspect the complete changed-file inventory for scope awareness and make a light correctness pass over listed cross-lane interfaces. Keep binary, unreadable, and unmatched paths visible as inventory-only fallbacks.
+3. Read beyond the packet only for a concrete interface or runnable-surface question and state every extra path/diff. Identify affected routes/pages/components and compare the lane-relevant plan steps with the inventory for missing work or scope creep.
 
 ## Phase 3 — Establish design-system + conventions context (BEFORE judging)
 

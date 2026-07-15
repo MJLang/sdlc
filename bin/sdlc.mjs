@@ -12,9 +12,14 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import net from 'node:net';
 import { createSessionActor, inspectBeadsInstallation, repositorySessionActor } from '../lib/beads.mjs';
+import { readProjectConfig } from '../lib/config.mjs';
 import { doctorExitCode, formatDoctor, inspectDoctor } from '../lib/doctor.mjs';
 import { fingerprintFile, formatFingerprint } from '../lib/fingerprint.mjs';
+import { formatGateRun, gateExitCode, runGates } from '../lib/gates.mjs';
+import { formatGuard, guardExitCode, inspectGuard } from '../lib/guard.mjs';
 import { parseReviewArtifact } from '../lib/review-artifact.mjs';
+import { createReviewPackets, formatReviewPacket } from '../lib/review-packet.mjs';
+import { inspectSnapshot } from '../lib/snapshot.mjs';
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cwd = process.cwd();
@@ -41,15 +46,12 @@ const CODEX_AGENT_MODELS = {
   'frontend-code-reviewer': 'gpt-5.6',
   'general-code-reviewer': 'gpt-5.6',
   'plan-reviewer': 'gpt-5.6',
-  // This role is mechanical fact gathering, so use the cost-sensitive tier.
-  'pipeline-snapshot': 'gpt-5.6-luna',
 };
 const CODEX_AGENT_REASONING_EFFORTS = {
   'backend-code-reviewer': 'high',
   'frontend-code-reviewer': 'high',
   'general-code-reviewer': 'high',
   'plan-reviewer': 'high',
-  'pipeline-snapshot': 'medium',
 };
 
 function help() {
@@ -61,6 +63,10 @@ Usage:
   sdlc actor [runtime] [--new]              Print a session-scoped Beads actor
   sdlc hash <file>                          Print the canonical full-file SHA-256
   sdlc doctor <NNN> [--json]                Validate pipeline and native Beads integrity
+  sdlc snapshot --view=next|queue --json    Collect one deterministic read-only pipeline snapshot
+  sdlc guard <stage> <NNN>                  Validate one stage and print a terse result
+  sdlc gates [--cwd <dir>] [--target <t>]   Run configured quality gates with bounded output
+  sdlc review-packet <NNN> [options]         Build deterministic lane-scoped reviewer context
   sdlc review <NNN> [options]               Prepare a plan worktree for local human review
 
 Options:
@@ -78,13 +84,25 @@ Review options:
   --preview        Start the configured local preview in the background
   --port <number>  Port to use for --preview (when the preview command uses {port})
 
+Gate options:
+  --cwd <dir>      Worktree in which to run gates (defaults to the current directory)
+  --target <t>     Include configured gates for one known target
+  --command <cmd>  Add an explicit ad-hoc command (repeatable and reported as ad-hoc)
+
+Review-packet options:
+  --reviewer <name>  Select one reviewer (repeatable; default derives configured reviewers)
+  --base <revision>  Diff base (default: main)
+  --head <revision>  Reviewed revision (default: HEAD)
+  --json             Emit packet objects as compact JSON instead of Markdown
+
 What setup does:
   1. git init (if not already a repository)
-  2. Creates thoughts/{${THOUGHTS_SUBDIRS.join(',')}} + thoughts/AGENTS.md (+ CLAUDE.md symlink)
+  2. Creates thoughts/{${THOUGHTS_SUBDIRS.join(',')}} + compact instructions/docs index (+ CLAUDE.md symlink)
   3. Creates a root AGENTS.md (if missing) and a root CLAUDE.md → AGENTS.md symlink
   4. Installs pipeline skills into .agents/skills/ (symlinked into .claude/skills/ for Claude)
-  5. Installs five bundled read-only reviewer and snapshot profiles into .claude/agents/ (Claude) or .codex/agents/ (Codex)
+  5. Installs four bundled read-only reviewer profiles into .claude/agents/ (Claude) or .codex/agents/ (Codex)
   6. Verifies Beads >= 1.1.0 and initializes it (unless --skip-beads)
+  7. Installs/updates a minimal .beads/PRIME.md with no memory bodies
 
 Skills can also be installed on their own, for any supported agent, via the skills CLI:
   npx skills add MJLang/sdlc
@@ -103,12 +121,6 @@ function git(args, options = {}) {
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function configCommand(config, label) {
-  const prefix = `^-\\s*\\*\\*${escapeRegex(label)}:\\*\\*\\s*`;
-  const match = config.match(new RegExp(`${prefix}\\\`([^\\\`]+)\\\``, 'm'));
-  return match?.[1].trim();
 }
 
 function substitute(value, variables) {
@@ -163,6 +175,25 @@ function positionalAfter(name, { skipOptionValues = new Set() } = {}) {
   return undefined;
 }
 
+function optionValue(name) {
+  const assignment = args.find((argument) => argument.startsWith(`${name}=`));
+  if (assignment) return assignment.slice(name.length + 1);
+  const index = args.indexOf(name);
+  const value = index >= 0 ? args[index + 1] : undefined;
+  return value && !value.startsWith('--') ? value : undefined;
+}
+
+function optionValues(name) {
+  const values = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === name) {
+      if (args[index + 1] !== undefined && !args[index + 1].startsWith('--')) values.push(args[index + 1]);
+      index += 1;
+    } else if (args[index].startsWith(`${name}=`)) values.push(args[index].slice(name.length + 1));
+  }
+  return values;
+}
+
 function actor() {
   const runtimeFlag = args.findIndex((argument) => argument === '--runtime');
   const runtimeAssignment = args.find((argument) => argument.startsWith('--runtime='));
@@ -210,6 +241,81 @@ function doctor() {
     process.exitCode = doctorExitCode(result);
   } catch (error) {
     console.error(`Doctor failed: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+function snapshot() {
+  const view = optionValue('--view');
+  if (!['next', 'queue'].includes(view)) {
+    console.error('Usage: sdlc snapshot --view=next|queue --json');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    console.log(JSON.stringify(inspectSnapshot(view, { cwd })));
+  } catch (error) {
+    console.error(`Snapshot failed: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+function guard() {
+  const commandIndex = args.indexOf('guard');
+  const stage = args.slice(commandIndex + 1).find((argument) => !argument.startsWith('-'));
+  const stageIndex = args.indexOf(stage, commandIndex + 1);
+  const number = args.slice(stageIndex + 1).find((argument) => !argument.startsWith('-'));
+  if (!stage || !number || !/^\d+$/.test(number)) {
+    console.error('Usage: sdlc guard <plan|approve|implement|review|land> <NNN>');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const result = inspectGuard(stage, number, { cwd });
+    console.log(formatGuard(result));
+    process.exitCode = guardExitCode(result);
+  } catch (error) {
+    console.error(`Guard failed: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+async function gates() {
+  const gateCwd = optionValue('--cwd') || cwd;
+  const target = optionValue('--target');
+  const adHocCommands = optionValues('--command');
+  if ((args.includes('--cwd') && !optionValue('--cwd')) || (args.includes('--target') && !target) || (args.includes('--command') && !adHocCommands.length)) {
+    console.error('Usage: sdlc gates [--cwd <dir>] [--target <t>] [--command <cmd>]');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const result = await runGates({ cwd: gateCwd, target, adHocCommands });
+    console.log(formatGateRun(result));
+    process.exitCode = gateExitCode(result);
+  } catch (error) {
+    console.error(`Gates refused: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+function reviewPacket() {
+  const number = positionalAfter('review-packet', { skipOptionValues: new Set(['--reviewer', '--base', '--head']) });
+  if (!number || !/^\d+$/.test(number)) {
+    console.error('Usage: sdlc review-packet <NNN> [--reviewer <name>] [--base <revision>] [--head <revision>] [--json]');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const packets = createReviewPackets(number, {
+      cwd,
+      base: optionValue('--base') || 'main',
+      head: optionValue('--head') || 'HEAD',
+      reviewerNames: optionValues('--reviewer'),
+    });
+    console.log(flags.has('--json') ? JSON.stringify(packets) : packets.map(formatReviewPacket).join('\n---\n\n'));
+  } catch (error) {
+    console.error(`Review packet failed: ${error.message}`);
     process.exitCode = 1;
   }
 }
@@ -275,11 +381,10 @@ async function review() {
   console.log(`\nChanged:\n${stat}`);
   console.log(`\nInspect: git -C ${JSON.stringify(worktree)} diff main...HEAD`);
 
-  const configPath = join(primary, 'thoughts', 'AGENTS.md');
-  const config = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
-  const editor = configCommand(config, 'Review editor');
-  const preview = configCommand(config, 'Local preview');
-  const previewUrl = configCommand(config, 'Preview URL');
+  const config = readProjectConfig(primary);
+  const editor = config.reviewEditor;
+  const preview = config.localPreview;
+  const previewUrl = config.previewUrl;
 
   if (flags.has('--editor')) {
     if (!editor) console.error('\nNo Review editor is configured in thoughts/AGENTS.md.');
@@ -378,6 +483,26 @@ function copyIfMissing(src, dest, label) {
   ok(label);
 }
 
+function copyIfAbsent(src, dest, label) {
+  if (existsSync(dest)) {
+    skip(`${label} exists`);
+    return;
+  }
+  cpSync(src, dest);
+  ok(label);
+}
+
+function installManagedFile(src, dest, label) {
+  const source = readFileSync(src);
+  if (existsSync(dest) && readFileSync(dest).equals(source)) {
+    skip(`${label} is current`);
+    return;
+  }
+  mkdirSync(dirname(dest), { recursive: true });
+  writeFileSync(dest, source);
+  ok(existsSync(dest) ? `${label} installed/updated` : label);
+}
+
 function frontmatterValue(frontmatter, key) {
   const line = frontmatter.split(/\r?\n/).find((candidate) => candidate.startsWith(`${key}:`));
   if (!line) return undefined;
@@ -455,6 +580,7 @@ function setup() {
     }
   }
   copyIfMissing(join(pkgRoot, 'template', 'thoughts', 'AGENTS.md'), join(cwd, 'thoughts', 'AGENTS.md'), 'thoughts/AGENTS.md (pipeline instructions)');
+  copyIfAbsent(join(pkgRoot, 'template', 'thoughts', 'docs', 'INDEX.md'), join(cwd, 'thoughts', 'docs', 'INDEX.md'), 'thoughts/docs/INDEX.md (documentation index)');
   linkClaudeMd(join(cwd, 'thoughts'), 'thoughts');
 
   head('root instructions');
@@ -550,6 +676,7 @@ function setup() {
         return;
       }
     }
+    installManagedFile(join(pkgRoot, 'template', 'beads', 'PRIME.md'), join(cwd, '.beads', 'PRIME.md'), '.beads/PRIME.md (minimal project prime)');
   }
 
   console.log(`
@@ -568,5 +695,9 @@ if (command === 'setup') setup();
 else if (command === 'actor') actor();
 else if (command === 'hash') hash();
 else if (command === 'doctor') doctor();
+else if (command === 'snapshot') snapshot();
+else if (command === 'guard') guard();
+else if (command === 'gates') await gates();
+else if (command === 'review-packet') reviewPacket();
 else if (command === 'review') await review();
 else help();

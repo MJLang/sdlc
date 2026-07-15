@@ -1,6 +1,6 @@
 {
   "name": "@mlangroman/sdlc",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Ticket → plan → implement → land: an agentic SDLC pipeline as installable agent skills, with one-command project setup (thoughts/ folder, AGENTS.md/CLAUDE.md symlinks, beads issue tracking).",
   "keywords": [
     "agent-skills",
@@ -25,9 +25,14 @@
     ".": "./lib/index.mjs",
     "./artifacts": "./lib/artifacts.mjs",
     "./beads": "./lib/beads.mjs",
+    "./config": "./lib/config.mjs",
     "./doctor": "./lib/doctor.mjs",
     "./fingerprint": "./lib/fingerprint.mjs",
-    "./review-artifact": "./lib/review-artifact.mjs"
+    "./gates": "./lib/gates.mjs",
+    "./guard": "./lib/guard.mjs",
+    "./review-artifact": "./lib/review-artifact.mjs",
+    "./review-packet": "./lib/review-packet.mjs",
+    "./snapshot": "./lib/snapshot.mjs"
   },
   "scripts": {
     "bump:minor": "node scripts/bump-version.mjs minor",
@@ -36,6 +41,7 @@
   },
   "files": [
     "bin/",
+    "docs/",
     "lib/",
     "skills/",
     "template/"

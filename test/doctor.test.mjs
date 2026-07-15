@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { doctorExitCode, evaluateArtifactState, inspectDoctor, latestReproducibleApproval, parseApprovalRecords, parseRebaseRecords, parseReviewApprovalRecords, parseWaiverRecords, pathMatchesScope } from '../lib/doctor.mjs';
+import { createDoctorInspectionContext, doctorExitCode, evaluateArtifactState, inspectDoctor, latestReproducibleApproval, parseApprovalRecords, parseRebaseRecords, parseReviewApprovalRecords, parseWaiverRecords, pathMatchesScope } from '../lib/doctor.mjs';
 import { fingerprintContent } from '../lib/fingerprint.mjs';
 import { parsePlan, parseTicket } from '../lib/artifacts.mjs';
 
@@ -148,6 +148,7 @@ function fakeBeadsRunner({
     if (key.includes('doctor --agent')) return json({ checks: [] });
     if (key.includes('context')) return json({ mode: 'embedded' });
     if (key.includes('ready')) return json(ready ?? [{ id: 'test-step' }, ...(extraStep ? [{ id: 'test-step-2' }] : [])]);
+    if (key.includes('list --status=in_progress')) return json(epicStatus === 'in_progress' ? [{ id: 'test-epic', status: epicStatus }] : []);
     if (key.includes('dep cycles')) return json([]);
     if (key.includes('worktree list')) return json(worktreePath ? [{ path: worktreePath, branch: '023-f-export', beads_state: 'local' }] : []);
     if (key.includes('gate list')) return json(gates);
@@ -272,6 +273,23 @@ test('doctor reports a healthy reproducible approval with native mappings', () =
   assert.equal(result.plan.approvedCommit, fixture.commit);
   assert.equal(result.beads.mappingValid, true);
   assert.equal(doctorExitCode(result), 0);
+});
+
+test('a shared inspection context collects global native diagnostics exactly once', () => {
+  const fixture = createRepository();
+  const fake = fakeBeadsRunner(fixture);
+  let contextCalls = 0;
+  const runner = (...arguments_) => {
+    if (arguments_[1].join(' ').includes(' context ')) contextCalls += 1;
+    return fake(...arguments_);
+  };
+  const inspectionContext = createDoctorInspectionContext({ cwd: fixture.root, beadsRunner: runner });
+  const first = inspectDoctor('023', { inspectionContext });
+  const second = inspectDoctor('023', { inspectionContext });
+  assert.equal(first.state, 'healthy');
+  assert.equal(second.state, 'healthy');
+  assert.equal(contextCalls, 1);
+  assert.equal(JSON.stringify(first).includes('inspection'), false);
 });
 
 test('doctor validates the structured review binding in a linked worktree', () => {

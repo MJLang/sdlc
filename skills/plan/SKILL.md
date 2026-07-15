@@ -1,6 +1,6 @@
 ---
 name: plan
-version: 0.3.0
+version: 0.4.0
 description: Research and write a traceable implementation plan for an approved ticket, then run the bounded independent plan critique. Use when an approved ticket needs a concrete plan before implementation.
 argument-hint: <ticket number, e.g. 003>
 ---
@@ -9,22 +9,31 @@ Write the plan for ticket `$ARGUMENTS` under `thoughts/AGENTS.md`. Research is a
 
 ## Preconditions
 
-Refuse with the exact failure when:
-
-1. exactly one `thoughts/tickets/{NNN}-*.md` cannot be resolved;
-2. the ticket is not `Status: approved`;
-3. an active plan with `{NNN}` already exists. A cancelled plan does not block a replacement, but preserve the cancelled artifact; or
-4. `sdlc doctor {NNN} --json` does not return `ready_for_planning`.
-
-Use the canonical ticket path and `ticket.sha256` returned by doctor. Confirm it with `sdlc hash <absolute-ticket-path>`; never reproduce the hash algorithm in a shell command.
+Run `sdlc guard plan {NNN}`. The `new-plan` matrix row accepts only
+`ready_for_planning` and returns the canonical ticket path/hash; any other mode
+refuses. When its coded recovery is insufficient, run
+`sdlc doctor {NNN} --json` once for full diagnostics. Confirm the returned hash
+with `sdlc hash <absolute-ticket-path>`; never reproduce the hash algorithm.
 
 ## Evidence and memories
 
-1. Read the canonical ticket, `thoughts/docs/`, Project Configuration, relevant source, tests, and repository instructions.
+1. Read the canonical ticket and `thoughts/docs/INDEX.md`. Load the overview plus target/tag-matched documents, expand only on ambiguity, and record the used documents under **Documentation Sources**. Then read Project Configuration, relevant source/tests, and repository instructions.
 2. Retrieve candidates for every ticket tag with `bd --readonly memories "tag:<tag>" --json`; deduplicate keys and use `bd --readonly recall <key>`. Apply a memory only when its `Applies when` overlaps the ticket, and verify it against current code.
 3. If frontend work is plausible, honor the configured design-system constraints and design skill and record their effect.
 
 Every Beads command in planning, research, or critique must include `--readonly`. Planning never mutates Beads.
+
+Relevant memories use this durable format; do not load or enumerate unrelated
+memory bodies:
+
+```text
+Tags: <2-5 stable tags>
+Index: tag:<tag> tag:<tag>
+Finding: <durable fact>
+Why: <why it matters>
+Applies when: <scope>
+Source: <plan/commit provenance>
+```
 
 ## Adaptive research
 
@@ -97,6 +106,7 @@ The body must contain:
 
 - **Context** - ticket link, current code, and research-synthesis link when one exists;
 - **Relevant Memories** - only used keys and their effect, or `None found`;
+- **Documentation Sources** - only the indexed documents that informed the plan;
 - **Current-State Findings** - a table with `Area or path | Finding | Evidence | Implication`; cite `path:line`;
 - **Implementation Steps** - immutable numbered steps using the exact shape below;
 - **Quality Gates** - Project Configuration gates plus target test/typecheck/build commands;

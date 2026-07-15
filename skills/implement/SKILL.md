@@ -1,6 +1,6 @@
 ---
 name: implement
-version: 0.3.0
+version: 0.4.0
 description: Implement an approved, fingerprinted plan in a Beads-managed worktree, execute its dependency graph, and run the bounded structured aggregate review. Use when doctor reports a plan healthy and ready for execution.
 argument-hint: <plan number, e.g. 003>
 ---
@@ -9,15 +9,22 @@ Implement plan `$ARGUMENTS` under `thoughts/AGENTS.md`. Canonical ticket and pla
 
 ## Integrity preflight and ownership
 
-1. Make `sdlc doctor {NNN} --json` the first action. Refuse unless it returns `healthy` and identifies one approved plan, ticket, epic, latest reproducible approval record, and no native coordination blocker. `reapproval_required` means `/approve {NNN}`; `legacy` requires explicit migration; `blocked` requires the reported recovery. Never claim first and validate later.
-2. If a remote exists, fetch and safely update primary main without stashing or overwriting unrelated user changes, then run doctor again. Refuse if current main cannot be made current safely.
+1. Make `sdlc guard implement {NNN}` the first action. The matrix accepts
+   `mode=execute` only with compatible ownership and ready work, or `mode=review`
+   after all active children close; both require `healthy` and return the plan
+   hash, approval commit, epic, ready IDs, and worktree. On refusal follow the
+   coded recovery and run `sdlc doctor {NNN} --json` only when more detail is
+   required. Never claim before this guard.
+2. If a remote exists, fetch and safely update primary main without stashing or overwriting unrelated user changes, then run the same guard again. Refuse if current main cannot be made current safely.
 3. Establish one root actor. Inherit only when `/next` explicitly invoked this transition and supplied its exact captured actor identity; otherwise treat this as a new root boundary, set `<runtime>`, and run:
 
    ```bash
    sdlc actor <runtime> --new
    ```
 
-   Capture the printed value as `<session-actor>` and carry that exact literal through this invocation. The actor is persisted in Git-common state for worktree visibility, but an unqualified latest-actor lookup cannot distinguish overlapping same-runtime roots. Because agent tool calls may use fresh shells, prefix every mutating Beads command with `BEADS_ACTOR="<session-actor>"`; never rely on a prior `export`. Pass the same literal identity and prefix rule to every authorized mutating subagent. A later root session must use a different actor.
+   Capture the literal and carry it unchanged through this invocation. Per the
+   contract actor invariant, prefix every mutation with
+   `BEADS_ACTOR="<session-actor>"`; never rely on shell export or an older actor.
 4. Make the atomic epic claim the first Beads mutation:
 
    ```bash
@@ -47,18 +54,34 @@ Use the plan filename without `.md` for both branch and worktree name.
 
 Repeat until every active child issue is closed or gated:
 
-1. Re-run `sdlc doctor {NNN} --json` at the top of every iteration, before selecting work. Any ticket/plan drift or new approval identity stops immediately before another issue claim and reports `/approve {NNN}`. Re-derive the issue graph with `bd --readonly show <epic-id> --json` and eligibility with `bd --readonly ready --json`.
+1. At the top of every iteration run
+   `BEADS_ACTOR="<session-actor>" sdlc guard implement {NNN}`. This matrix check
+   replaces the repeated full-doctor preflight: drift, ownership, gates, and
+   ready IDs are projected in one line. `mode=review` ends the execution loop;
+   a refusal may be expanded with one full doctor call.
 2. Select only ready children of this epic. Respect `Depends on` and serialize overlapping `Files`; concurrently execute only plan-declared parallel steps whose file sets are disjoint.
 3. Claim each selected child atomically under this session actor. A conflicting owner stops work on that child; do not share it.
-4. Give an implementer subagent:
+4. Give an implementer only this compact immutable step packet:
    - the worktree directory as its only edit root;
-   - absolute canonical ticket and plan paths;
-   - approved plan hash and commit;
-   - exact step text, issue ID, `Covers`, and `Files`;
-   - current repository instructions and the requirement to follow existing conventions.
+   - exact step text and issue ID;
+   - `Covers` plus the quoted live AC text for those IDs;
+   - declared `Files`, `Depends on`, applicable configured gates/constraints;
+   - approved plan hash/commit and absolute canonical plan path;
+   - the target and worktree root.
 
-   The subagent must verify `sdlc hash <canonical-plan>` equals the supplied approved hash before editing. It must not edit canonical artifacts. Beads reads, if needed, use `bd --readonly`; the parent performs lifecycle mutations.
-5. Run Project Configuration gates plus applicable target test/typecheck/build commands in the worktree. Fix failures before closing the issue.
+   The full ticket/plan remain available only for a specific ambiguity. The
+   subagent verifies `sdlc hash <canonical-plan>` against the supplied literal,
+   never edits canonical artifacts, and keeps Beads reads `bd --readonly`.
+   Return exactly:
+
+   ```text
+   status=<pass|blocked> commit=<sha|none> files=<paths|none> gates=<summary> memory-candidates=<keys|none> blocker=<none|specific blocker>
+   ```
+
+   The parent consumes only these handoff facts and owns lifecycle mutations.
+5. Run `sdlc gates --cwd <worktree> --target <target>`. Its configured global
+   and target commands are authoritative; fix any failure using the bounded
+   excerpt/full-log path before closing the issue.
 6. Commit one step as `step N: <title> (<issue-id>)`, then push the Git commit when a remote exists. Only after the code is safely published, close the issue with the inline session actor and push Beads. A crash after commit/push but before close is recovered through the issue-bearing commit reported by `bd --readonly orphans --json`; never auto-close merely because an orphan signal exists.
 7. At the next iteration, verify that any committed-but-open issue corresponds to the exact expected commit and gates before explicitly closing it. Verify any closed-but-unpushed step before pushing. Do not duplicate commits.
 
@@ -86,13 +109,24 @@ memory-candidate: key=<stable-slug>; tags=<comma-list>; finding=<fact>; why=<rea
 
 ## Aggregate review
 
-Run review only after all active implementation children are closed, no gate is open, the worktree is clean, and quality gates pass.
+Run `sdlc guard review {NNN}` and require an accepted matrix row before review.
+It proves all active children closed, no gate/escalation, a clean worktree, and
+mechanically valid existing artifacts. Run `sdlc gates` once more when the
+latest code has not already produced the current persisted gate summary.
 
 ### Reviewer set and immutable inputs
 
-1. Derive the required reviewer set from actual changed paths against main, excluding `thoughts/reviews/`. Use every configured lane reviewer; use `general-code-reviewer` for an unmapped changed lane; deduplicate a repeated reviewer by unioning scopes. Recompute every round.
+1. Run `sdlc review-packet {NNN} --head <reviewed-head> --json`. It derives the
+   configured reviewer set, classifies every changed path, and emits one packet
+   per reviewer. Use `general-code-reviewer` for its explicit unmapped packet;
+   recompute packets every round.
 2. An unavailable required reviewer is a non-gating escalation: add `human` to the epic, persist the reason, and stop. Never substitute an anonymous contract.
-3. Capture one reviewed code HEAD. Give every reviewer the exact HEAD, canonical ticket/plan paths, approved plan hash/commit, lane scope, current ACs, and, for rounds after one, the prior finding inventory. Every reviewer is read-only, uses `bd --readonly`, verifies the canonical plan hash, and stops on drift.
+3. Capture one reviewed code HEAD. Give each reviewer only its packet: ticket
+   intent/live ACs, approved identity and lane steps, complete changed-file
+   inventory, lane-scoped diff, cross-lane interfaces, gate summary, and prior
+   finding inventory. Every reviewer reads its lane diff fully, stays inventory
+   aware, lightly checks interfaces, states any read beyond the packet, remains
+   read-only, verifies the canonical plan hash, and stops on drift.
 4. Run reviewers against that one HEAD, concurrently when useful. Do not edit during review. Before aggregation, confirm HEAD is unchanged and the worktree is clean; otherwise discard all reports and restart the same round after reconciling the state.
 
 ### Component contract
@@ -148,7 +182,9 @@ The `Verdict:` in `## Overall` is the unique final standalone line in the file. 
 
 ### Convergence
 
-- After the first blocked aggregate, fix every actionable MUST FIX, rerun gates, commit/push fixes, and start a complete fresh round against the new HEAD.
+- After the first blocked aggregate, fix every actionable MUST FIX, rerun
+  `sdlc gates --cwd <worktree> --target <target>`, commit/push fixes, and create
+  fresh packets for the complete reviewer set against the new HEAD.
 - If a later aggregate MUST FIX count is greater than or equal to the previous completed round, persist/commit/push the evidence, label the epic `human`, and stop immediately. `Fix-Disposition` lets the human distinguish persistence from churn.
 - If the count decreases but remains positive, continue within the three-completed-round cap.
 - If round three remains blocked, persist it, label the epic `human`, and stop.
@@ -159,5 +195,9 @@ After an approved aggregate is committed, append and push this binding under the
 ```text
 review: APPROVED sha=<artifact-commit HEAD> code-sha=<Reviewed code SHA> plan-sha256=<approved hex> plan-commit=<approved main SHA> rounds=<n>
 ```
+
+After `sdlc guard review {NNN}` accepts an existing artifact, reread only its
+identity header and `## Overall` block; the guard already reproduces the full
+artifact grammar, AC/scope controls, rounds, hashes, and HEAD binding.
 
 Push the branch and Beads data where remotes exist. Report completed steps, gates, open dedicated gates or escalations, review verdict, approved plan identity, and worktree path. Never merge main; `/land {NNN}` remains the human gate.
