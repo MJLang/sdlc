@@ -540,7 +540,7 @@ test('doctor leaves amendment mapping deltas for approve instead of deadlocking 
   });
   assert.equal(result.state, 'reapproval_required', JSON.stringify(result, null, 2));
   assert.equal(result.beads.mappingValid, false);
-  assert(result.warnings.some((warning) => warning.includes('Pending /approve sync: Active plan step 2 has no Beads child mapping')));
+  assert(result.warnings.some((warning) => warning.includes('Pending /sdlc-approve sync: Active plan step 2 has no Beads child mapping')));
 });
 
 test('doctor ignores a cancelled prior plan when an approved ticket is ready to plan again', () => {

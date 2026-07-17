@@ -41,6 +41,7 @@ const installCodex = flags.has('--codex');
 const installPi = flags.has('--pi');
 
 const SKILLS_DIR = join(pkgRoot, 'skills');
+const LEGACY_SKILL_NAMES = ['approve', 'cancel', 'chore', 'implement', 'land', 'next', 'plan', 'queue', 'review', 'ticket'];
 const THOUGHTS_SUBDIRS = ['tickets', 'plans', 'designs', 'docs', 'reviews'];
 const CODEX_AGENT_MODELS = {
   // Code review benefits from the frontier model's deeper reasoning.
@@ -399,7 +400,7 @@ async function review() {
   }
 
   if (flags.has('--artifact')) {
-    if (!artifact) console.error('\nNo review artifact exists yet. Run /implement first.');
+    if (!artifact) console.error('\nNo review artifact exists yet. Run /sdlc-implement first.');
     else if (openPath(artifact).error) console.error(`Could not open ${artifact}`);
   }
 
@@ -654,6 +655,13 @@ function setup() {
       ok(name);
     }
 
+    const legacySkills = LEGACY_SKILL_NAMES.filter((name) =>
+      existsSync(join(agentsSkillsDir, name)) || existsSync(join(cwd, '.claude', 'skills', name)),
+    );
+    if (legacySkills.length) {
+      warn(`legacy unprefixed skill directories detected: ${legacySkills.join(', ')}; verify they belong to sdlc, then remove them to avoid native-command collisions`);
+    }
+
     if (installClaude) {
       head('skills → .claude/skills/ (symlinked to .agents/skills/)');
       const claudeSkillsDir = join(cwd, '.claude', 'skills');
@@ -738,10 +746,10 @@ ${c('1', 'Done. Next steps:')}
   1. Edit the ${c('1', 'Project Configuration')} section in thoughts/AGENTS.md
      (targets, quality gates, reviewers, product docs)
   2. Drop your product/context docs into thoughts/docs/
-  3. In your agent: ${c('1', '/ticket <your first idea>')}
+  3. In your agent: ${c('1', '/sdlc-ticket <your first idea>')}
 
-Pipeline: /ticket → approve by hand → /plan → /approve → /implement → /land
-Dashboard: /queue    Autonomous: /loop /next    Small fixes: /chore
+Pipeline: /sdlc-ticket → approve by hand → /sdlc-plan → /sdlc-approve → /sdlc-implement → /sdlc-land
+Dashboard: /sdlc-queue    Autonomous: /loop /sdlc-next    Small fixes: /sdlc-chore
 `);
 }
 

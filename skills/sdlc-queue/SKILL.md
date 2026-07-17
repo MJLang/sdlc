@@ -1,6 +1,6 @@
 ---
-name: queue
-version: 0.5.0
+name: sdlc-queue
+version: 0.5.1
 description: Format the deterministic read-only pipeline snapshot as a compact human dashboard.
 ---
 
@@ -23,7 +23,7 @@ Format its non-empty `sections` in this order, one compact line per item:
 2. **In flight** — progress, owner, doctor state, worktree path/HEAD, dirt,
    unpushed commits, stashes, and last Git activity when present.
 3. **Ready to start** — only snapshot entries with `eligible=true`; show the
-   exact `/plan` or `/implement` command.
+   exact `/sdlc-plan` or `/sdlc-implement` command.
 4. **Drafts** — ticket path and the explicit ticket-approval action.
 5. **Recently landed** — ticket, commit, and title.
 

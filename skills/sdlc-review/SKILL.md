@@ -1,16 +1,16 @@
 ---
-name: review
-version: 0.5.0
+name: sdlc-review
+version: 0.5.1
 description: Prepare an implemented plan's Beads-visible worktree, approved-plan identity, diff, and persisted aggregate review for local human inspection without changing pipeline state.
 ---
 
 # Local review handoff
 
-Use this human-review surface before `/land`. It is not an automated review or state transition. Never edit, stage, commit, push, change Beads, resolve a gate, or invoke `/land`.
+Use this human-review surface before `/sdlc-land`. It is not an automated review or state transition. Never edit, stage, commit, push, change Beads, resolve a gate, or invoke `/sdlc-land`.
 
 ## Input
 
-`/review <NNN> [--editor] [--artifact] [--diff] [--preview] [--port <number>]`
+`/sdlc-review <NNN> [--editor] [--artifact] [--diff] [--preview] [--port <number>]`
 
 Require `<NNN>`; never guess among plans.
 
@@ -39,7 +39,7 @@ Require `<NNN>`; never guess among plans.
    - `--diff`: present `main...HEAD`;
    - `--preview`: start the configured preview from the worktree and return its URL. Require **Local preview** and **Preview URL** in Project Configuration; substitute `{worktree}` and `{port}`, with default port 4173.
 
-Opening an editor, artifact, diff, or preview never implies approval. Close with the actual doctor/review status and say `/land <NNN>` is available only when the user is satisfied and every landing precondition is healthy.
+Opening an editor, artifact, diff, or preview never implies approval. Close with the actual doctor/review status and say `/sdlc-land <NNN>` is available only when the user is satisfied and every landing precondition is healthy.
 
 Optional Project Configuration remains:
 

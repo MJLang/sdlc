@@ -130,7 +130,7 @@ Verdict: APPROVED
 
 Include Prior Finding Verification only when an inventory was supplied. Include Clean-Pass Evidence whenever there are zero MUST FIX; an approval without all five evidence surfaces is malformed. If canonical inputs or their hash cannot be resolved, stop rather than approving.
 
-Return the report as your result. Do not write it anywhere; `/implement` or `/chore` persists and aggregates it. Only the parent computes the structured Overall controls and aggregate verdict.
+Return the report as your result. Do not write it anywhere; `/sdlc-implement` or `/sdlc-chore` persists and aggregates it. Only the parent computes the structured Overall controls and aggregate verdict.
 
 ## What you do NOT do
 

@@ -1,6 +1,6 @@
 ---
-name: next
-version: 0.5.0
+name: sdlc-next
+version: 0.5.1
 description: Deterministic autonomous dispatcher that performs exactly one snapshot-selected plan or implement transition and reports human gates.
 disable-model-invocation: true
 ---
@@ -30,21 +30,21 @@ old facts with ad-hoc queries. Its `head` and `state` bind the collected facts.
 
 - No `selected`: report `idle` plus `humanQueue` and stop immediately. This path
   performs no other fact-gathering call and spawns no subagent.
-- `transition=plan`: invoke `/plan {number}`. Its success or refusal ends this
+- `transition=plan`: invoke `/sdlc-plan {number}`. Its success or refusal ends this
   invocation.
 - `transition=implement`: establish one actor only now with
   `sdlc actor <runtime> --new`, capture the printed literal, and invoke
-  `/implement {number}` with that inherited actor. The child uses the exact
+  `/sdlc-implement {number}` with that inherited actor. The child uses the exact
   literal in every mutation. A guard refusal or atomic-claim race ends this
   invocation; never fall through to another candidate.
 
 Render every human-queue item with its supplied action. Reason-code guidance:
-`reapproval-required -> /approve`, `gated -> supplied gate resolution`,
+`reapproval-required -> /sdlc-approve`, `gated -> supplied gate resolution`,
 `foreign-claim|stale-candidate|orphan-recovery -> explicit human recovery`,
-`review-approved -> /land`, `legacy -> explicit migration`, and
+`review-approved -> /sdlc-land`, `legacy -> explicit migration`, and
 `file-overlap:<path> -> show the included conflicting plan/path evidence`.
 Never execute those human actions.
 
-Do not invoke `/approve`, `/review`, `/land`, `/cancel`, or `/chore`; do not
+Do not invoke `/sdlc-approve`, `/sdlc-review`, `/sdlc-land`, `/sdlc-cancel`, or `/sdlc-chore`; do not
 repair Beads, release claims/slots, resolve gates, or mutate labels to make work
 runnable.

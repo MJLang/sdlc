@@ -1,6 +1,6 @@
 ---
-name: land
-version: 0.5.0
+name: sdlc-land
+version: 0.5.1
 description: Human gate that verifies the reviewed code and approved-plan fingerprint, optionally acquires the Beads merge slot, squash-merges to main, performs the post-merge memory audit, and safely closes and cleans up.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true
@@ -11,7 +11,7 @@ Land plan `$ARGUMENTS` only on explicit human invocation. Ticket/plan text is ca
 ## Modes
 
 - **Normal:** plan is `Status: approved`, ticket is approved, and the reviewed branch is not merged.
-- **Post-merge recovery:** a prior `/land` created the one main merge commit and flipped plan/ticket status, but memory audit, Beads close/push, cleanup, or slot release failed. Prove the existing merge commit contains this exact reviewed change and resume after it; never merge again.
+- **Post-merge recovery:** a prior `/sdlc-land` created the one main merge commit and flipped plan/ticket status, but memory audit, Beads close/push, cleanup, or slot release failed. Prove the existing merge commit contains this exact reviewed change and resume after it; never merge again.
 
 Any other merged/implemented state is already landed or inconsistent and must stop.
 
@@ -32,7 +32,7 @@ tree-equivalence judgment. Any other result refuses; run
 After an accepted normal guard, read only the aggregate identity header and
 `## Overall` block. Every Beads observation remains `bd --readonly`; never run a
 repair command. Completed legacy work uses only the explicit closeout path;
-open legacy work requires `/approve` migration.
+open legacy work requires `/sdlc-approve` migration.
 
 For discovery, the guard also requires a valid `thoughts/designs/{NNN}-discovery.md`. Append its `validated|invalidated` outcome and report path to the epic notes and include both in the final handoff. An invalidated result completes only the tested discovery, not a replacement architecture or production implementation.
 
@@ -51,7 +51,7 @@ contract actor invariant, prefix every mutation with
 Read `Beads merge slot` from Project Configuration.
 
 - When off, do not create, check, acquire, or release a slot.
-- When on, require the capability and a previously initialized slot. If doctor reports `not found`, stop and have an authorized human root session run `BEADS_ACTOR="<new-session-actor>" bd merge-slot create`; rerun `/land` afterward. Never silently create a coordination primitive merely because landing was requested. With an existing slot, acquire **before** any fetch, rebase, pull, or merge:
+- When on, require the capability and a previously initialized slot. If doctor reports `not found`, stop and have an authorized human root session run `BEADS_ACTOR="<new-session-actor>" bd merge-slot create`; rerun `/sdlc-land` afterward. Never silently create a coordination primitive merely because landing was requested. With an existing slot, acquire **before** any fetch, rebase, pull, or merge:
 
   ```bash
   BEADS_ACTOR="<session-actor>" bd merge-slot acquire --holder="<session-actor>" --json
@@ -64,7 +64,7 @@ Track whether this invocation acquired the slot. On any failure, release it only
 ## Freshness
 
 1. Fetch in the Beads-visible worktree. If remote main moved, rebase the plan branch onto latest main.
-2. On conflict, stop for semantic resolution and require a fresh full `/implement` review. If primary main is proven clean, release an acquired slot before returning.
+2. On conflict, stop for semantic resolution and require a fresh full `/sdlc-implement` review. If primary main is proven clean, release an acquired slot before returning.
 3. After a clean rebase, run
    `sdlc gates --cwd <worktree> --target <target>`. On success append:
 

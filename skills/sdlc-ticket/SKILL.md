@@ -1,6 +1,6 @@
 ---
-name: ticket
-version: 0.5.0
+name: sdlc-ticket
+version: 0.5.1
 description: Create a new work ticket in thoughts/tickets from an idea. Use when the user describes a feature, bug, refactor, chore, or discovery that should enter the ticket-to-plan-to-implement pipeline.
 argument-hint: <one-line idea or description>
 disable-model-invocation: true

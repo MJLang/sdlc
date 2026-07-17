@@ -139,7 +139,7 @@ skill and validator uses this one implementation through `sdlc hash`.
 
 ### Why approval records are reproducible
 
-When `/approve` commits a ticket and plan, it appends this record to the Beads
+When `/sdlc-approve` commits a ticket and plan, it appends this record to the Beads
 epic:
 
 ```text
@@ -232,7 +232,7 @@ Doctor reports one state and one exit class:
 Exit `1` is reserved for invalid invocation or a completely unavailable
 dependency. Doctor diagnoses; it never repairs.
 
-## Snapshot: one collection for `/next` and `/queue`
+## Snapshot: one collection for `/sdlc-next` and `/sdlc-queue`
 
 `lib/snapshot.mjs` turns the shared doctor context into one compact JSON
 document. It reuses that context instead of running separate Beads and doctor
@@ -257,7 +257,7 @@ ready step. Declared file overlap with another in-flight plan does block the
 candidate and includes the conflicting plan and scope as evidence.
 
 The same document carries a human queue for approvals, landing, gates,
-reapproval, explicit stale/orphan recovery, and draft-ticket approval. `/next`
+reapproval, explicit stale/orphan recovery, and draft-ticket approval. `/sdlc-next`
 uses the selected object as-is; it does not recalculate eligibility. If nothing
 is selected, it reports idle and stops without another fact call or subagent.
 
@@ -414,13 +414,13 @@ Doctor reproduces this binding before landing.
 
 ### Ticket
 
-`/ticket` allocates a number, searches the project documentation index first,
+`/sdlc-ticket` allocates a number, searches the project documentation index first,
 and writes intent plus stable acceptance criteria. It does not approve its own
 work. A human changes `Status: draft` to `Status: approved` after reading it.
 
 ### Plan
 
-`/plan` uses the `plan` guard, retrieves only documentation and tagged memories
+`/sdlc-plan` uses the `plan` guard, retrieves only documentation and tagged memories
 relevant to the ticket, and performs repository research inline. Up to three
 independent read-only research tracks are used only when material unknowns
 exist. A reusable synthesis records its ticket hash and Git baseline. The plan
@@ -429,7 +429,7 @@ It stops at `Status: review`.
 
 ### Approve
 
-`/approve` is a human gate. On first approval it creates an epic and one child
+`/sdlc-approve` is a human gate. On first approval it creates an epic and one child
 per active step, adds dependency edges, writes stable spec metadata, updates the
 canonical plan with its mapping, commits only the gate artifacts, and appends
 the reproducible approval note.
@@ -441,7 +441,7 @@ transaction; reruns discover matching objects and complete only missing work.
 
 ### Implement
 
-`/implement` runs the guard before any claim, refreshes `main` safely, captures
+`/sdlc-implement` runs the guard before any claim, refreshes `main` safely, captures
 or inherits one root actor, and atomically claims the epic. It creates or
 resumes the branch only through `bd worktree create` and verifies native
 registration before using it.
@@ -472,7 +472,7 @@ persisted review evidence.
 
 ### Land
 
-`/land` is another explicit human gate. It validates the approved plan and
+`/sdlc-land` is another explicit human gate. It validates the approved plan and
 review binding, checks historical consent evidence, optionally acquires a
 preconfigured merge slot, and refreshes/rebases against current `main`.
 
@@ -503,12 +503,12 @@ and plan hashes. It maps every AC to its experiment, threshold, observation,
 evidence path, and pass/invalidated/blocked disposition. `validated` and
 `invalidated` both complete the discovery; `inconclusive` is never terminal.
 
-`/chore` is a bounded shortcut for tiny low-risk work. It creates an approved
+`/sdlc-chore` is a bounded shortcut for tiny low-risk work. It creates an approved
 chore ticket and one Bead, but no plan or epic. It still uses a native worktree,
 gates, structured review, one merge commit, memory audit, and safe cleanup. If
 the scope grows beyond the chore boundary, it stops and asks for a normal plan.
 
-`/cancel` is deliberately more cautious because it may destroy unmerged work.
+`/sdlc-cancel` is deliberately more cautious because it may destroy unmerged work.
 It shows the blast radius first and requires additional confirmation when a
 worktree is dirty, unpublished, or stashed. Normal cleanup never forces native
 worktree removal; cancellation is the only lane where a second explicit human
@@ -563,7 +563,7 @@ provides subpath exports.
 | `beads.mjs` | Capability checks, actors, safe adapters, native diagnostics | `sdlc actor`; all state readers |
 | `config.mjs` | Project Configuration grammar and lane classification | Gates, packets, local review |
 | `doctor.mjs` | Full artifact/Beads/Git/review diagnosis | `sdlc doctor` |
-| `snapshot.mjs` | Deterministic `/next` and `/queue` projection | `sdlc snapshot` |
+| `snapshot.mjs` | Deterministic `/sdlc-next` and `/sdlc-queue` projection | `sdlc snapshot` |
 | `guard.mjs` | Stage acceptance matrices | `sdlc guard` |
 | `gates.mjs` | Ordered execution, bounded output, protected logs | `sdlc gates` |
 | `review-packet.mjs` | Step and reviewer context packets | `sdlc review-packet` plus library API |

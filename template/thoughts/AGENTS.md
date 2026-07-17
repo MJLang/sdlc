@@ -67,13 +67,13 @@ copy, or rebase artifact snapshots into a live worktree.
 - Discovery is planned work (`ticket -> plan -> approve -> implement -> review -> land`), not a chore lane. Its result is `thoughts/designs/{NNN}-discovery.md`; either `validated` or `invalidated` may complete it, while inconclusive work remains active behind an amended protocol or human gate.
 - Implementation commits and pushes a step before closing its issue. Review
   runs after all active children close and persists one aggregate artifact per
-  completed round. Only `/land` merges.
+  completed round. Only `/sdlc-land` merges.
 
 ## Human Gates
 
-Humans explicitly approve a draft ticket, invoke `/approve`, invoke `/land`,
+Humans explicitly approve a draft ticket, invoke `/sdlc-approve`, invoke `/sdlc-land`,
 authorize destructive cancellation after seeing its blast radius, and resolve
-dedicated execution-time gates. `/next` may invoke only `/plan` or `/implement`,
+dedicated execution-time gates. `/sdlc-next` may invoke only `/sdlc-plan` or `/sdlc-implement`,
 performs one transition, and never crosses these boundaries.
 
 Approval Attention does not itself grant execution-time consent. An item still
@@ -99,14 +99,14 @@ Editing an approved artifact requires amendment approval.
 
 Detailed procedures live only in their loaded-when-needed skills:
 
-- `/ticket`: intent artifact and documentation-index lookup;
-- `/plan`: targeted docs/memories, optional research, plan, critique;
-- `/approve`: first approval, amendment, recovery, graph synchronization;
-- `/implement`: claims, step packets/results, gates, aggregate review;
-- `/review`: local read-only human inspection;
-- `/land`: freshness, merge, memory audit, close/publish/cleanup;
-- `/chore`, `/cancel`, `/next`, `/queue`: their named lanes.
+- `/sdlc-ticket`: intent artifact and documentation-index lookup;
+- `/sdlc-plan`: targeted docs/memories, optional research, plan, critique;
+- `/sdlc-approve`: first approval, amendment, recovery, graph synchronization;
+- `/sdlc-implement`: claims, step packets/results, gates, aggregate review;
+- `/sdlc-review`: local read-only human inspection;
+- `/sdlc-land`: freshness, merge, memory audit, close/publish/cleanup;
+- `/sdlc-chore`, `/sdlc-cancel`, `/sdlc-next`, `/sdlc-queue`: their named lanes.
 
 Product documentation is indexed by `thoughts/docs/INDEX.md`. Memory bodies are
-retrieved only by tag search plus explicit recall; `/plan` owns retrieval and
-`/land` owns post-merge audit/promotion.
+retrieved only by tag search plus explicit recall; `/sdlc-plan` owns retrieval and
+`/sdlc-land` owns post-merge audit/promotion.

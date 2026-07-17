@@ -17,9 +17,9 @@ fallbacks, or another session's claim identity to bypass recovery.
 
 ## Memory
 
-Fresh sessions load no memory bodies. `/plan` retrieves only tag-matched
+Fresh sessions load no memory bodies. `/sdlc-plan` retrieves only tag-matched
 memories with `bd --readonly memories "tag:<tag>" --json` plus explicit
-`bd --readonly recall <key>`; `/land` owns the complete post-merge memory audit
+`bd --readonly recall <key>`; `/sdlc-land` owns the complete post-merge memory audit
 and durable-memory format. Implementation records only `memory-candidate:` epic
 notes. Never create `MEMORY.md`.
 

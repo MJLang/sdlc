@@ -1,6 +1,6 @@
 ---
-name: approve
-version: 0.5.0
+name: sdlc-approve
+version: 0.5.1
 description: Human gate that commits and approves a reviewed plan, creates its traceable Beads graph and approval hash record, or safely re-syncs an amended approved plan.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true
@@ -131,4 +131,4 @@ For either mode:
 - Preserve pre-contract `human`-labeled implementation steps as legacy records; do not synthesize gate issues or silently close them. Record the decision explicitly, remove the legacy label only when safe, and use dedicated gates for every new question.
 - Never silently add AC IDs, coverage, findings dispositions, or waivers during migration.
 
-Report the mode, commit and hashes, epic/step mapping changes, dependency result, doctor state, and push state. `/implement {NNN}` is legal only after doctor is `healthy`.
+Report the mode, commit and hashes, epic/step mapping changes, dependency result, doctor state, and push state. `/sdlc-implement {NNN}` is legal only after doctor is `healthy`.

@@ -1,6 +1,6 @@
 ---
-name: implement
-version: 0.5.0
+name: sdlc-implement
+version: 0.5.1
 description: Implement an approved, fingerprinted plan in a Beads-managed worktree, execute its dependency graph, and run the bounded structured aggregate review. Use when doctor reports a plan healthy and ready for execution.
 argument-hint: <plan number, e.g. 003>
 ---
@@ -16,7 +16,7 @@ Implement plan `$ARGUMENTS` under `thoughts/AGENTS.md`. Canonical ticket and pla
    coded recovery and run `sdlc doctor {NNN} --json` only when more detail is
    required. Never claim before this guard.
 2. If a remote exists, fetch and safely update primary main without stashing or overwriting unrelated user changes, then run the same guard again. Refuse if current main cannot be made current safely.
-3. Establish one root actor. Inherit only when `/next` explicitly invoked this transition and supplied its exact captured actor identity; otherwise treat this as a new root boundary, set `<runtime>`, and run:
+3. Establish one root actor. Inherit only when `/sdlc-next` explicitly invoked this transition and supplied its exact captured actor identity; otherwise treat this as a new root boundary, set `<runtime>`, and run:
 
    ```bash
    sdlc actor <runtime> --new
@@ -105,7 +105,7 @@ Do not run `bd remember`, `bd forget`, or a memory audit. Append only durable, h
 memory-candidate: key=<stable-slug>; tags=<comma-list>; finding=<fact>; why=<reason>; applies=<scope>; source-step=<issue-id>
 ```
 
-`/land` evaluates and promotes them after a merge commit exists. Candidates from cancelled work deliberately remain unpromoted.
+`/sdlc-land` evaluates and promotes them after a merge commit exists. Candidates from cancelled work deliberately remain unpromoted.
 
 ## Aggregate review
 
@@ -227,4 +227,4 @@ After `sdlc guard review {NNN}` accepts an existing artifact, reread only its
 identity header and `## Overall` block; the guard already reproduces the full
 artifact grammar, AC/scope controls, rounds, hashes, and HEAD binding.
 
-Push the branch and Beads data where remotes exist. Report completed steps, gates, open dedicated gates or escalations, review verdict, approved plan identity, and worktree path. Never merge main; `/land {NNN}` remains the human gate.
+Push the branch and Beads data where remotes exist. Report completed steps, gates, open dedicated gates or escalations, review verdict, approved plan identity, and worktree path. Never merge main; `/sdlc-land {NNN}` remains the human gate.

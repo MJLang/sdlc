@@ -1,6 +1,6 @@
 ---
-name: plan
-version: 0.5.0
+name: sdlc-plan
+version: 0.5.1
 description: Research and write a traceable implementation plan for an approved ticket, then run the bounded independent plan critique. Use when an approved ticket needs a concrete plan before implementation.
 argument-hint: <ticket number, e.g. 003>
 ---
@@ -149,7 +149,7 @@ Scoped Re-check Verdict: APPROVED
 
 - Run exactly one full pass.
 - Correct blocking findings when possible. If any were corrected, run at most one re-check scoped only to those IDs; never a third pass.
-- Leave unresolved blockers visible. `/approve` must refuse until a human corrects or explicitly waives each one with a recorded reason.
+- Leave unresolved blockers visible. `/sdlc-approve` must refuse until a human corrects or explicitly waives each one with a recorded reason.
 - If the named reviewer is unavailable, mark the isolated fallback. If no independent context is available, record a degraded critique instead of inventing approval.
 
-Stop at `Status: review`. Do not create Beads issues, worktrees, or code. Report the plan and optional synthesis paths and direct the human to `/approve {NNN}`.
+Stop at `Status: review`. Do not create Beads issues, worktrees, or code. Report the plan and optional synthesis paths and direct the human to `/sdlc-approve {NNN}`.

@@ -162,7 +162,7 @@ test('queue includes an in-progress chore discovered by the single global issue 
     ticket: { path: 'thoughts/tickets/003-chore.md', status: 'approved', sha256: 'x'.repeat(64) },
     plan: null,
     state: 'blocked',
-    errors: ['Chore-lane ticket intentionally has no plan; resume or recover it through /chore, not /plan.'],
+    errors: ['Chore-lane ticket intentionally has no plan; resume or recover it through /sdlc-chore, not /sdlc-plan.'],
     beads: { capabilitiesValid: true, healthValid: true, epic: null, openGates: [], escalations: [], orphans: [] },
     inspection: { context: shared, epic: null, children: [], plan: null },
   });

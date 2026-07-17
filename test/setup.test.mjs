@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,18 @@ import test from 'node:test';
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(packageRoot, 'bin', 'sdlc.mjs');
 const installedBeads = spawnSync('bd', ['--version'], { encoding: 'utf8' }).status === 0;
+const skillNames = [
+  'sdlc-approve',
+  'sdlc-cancel',
+  'sdlc-chore',
+  'sdlc-implement',
+  'sdlc-land',
+  'sdlc-next',
+  'sdlc-plan',
+  'sdlc-queue',
+  'sdlc-review',
+  'sdlc-ticket',
+];
 
 function gitRepository() {
   const root = mkdtempSync(join(tmpdir(), 'sdlc-setup-'));
@@ -37,9 +49,26 @@ test('setup installs discovery workflow contracts in templates and skills', () =
   const root = gitRepository();
   execFileSync(process.execPath, [cli, 'setup', '--skip-beads', '--skip-agents', '--codex'], { cwd: root, stdio: 'ignore' });
   assert.match(readFileSync(join(root, 'thoughts', 'AGENTS.md'), 'utf8'), /Discovery is planned work/);
-  const installed = readFileSync(join(root, '.agents', 'skills', 'implement', 'SKILL.md'), 'utf8');
+  const installed = readFileSync(join(root, '.agents', 'skills', 'sdlc-implement', 'SKILL.md'), 'utf8');
   assert.match(installed, /Discovery Result - Ticket/);
   assert.match(installed, /Outcome: validated \| invalidated/);
+  assert.deepEqual(readdirSync(join(root, '.agents', 'skills')).sort(), skillNames);
+});
+
+test('setup warns without deleting a legacy unprefixed skill', () => {
+  const root = gitRepository();
+  const legacySkill = join(root, '.agents', 'skills', 'plan');
+  mkdirSync(legacySkill, { recursive: true });
+
+  const output = execFileSync(
+    process.execPath,
+    [cli, 'setup', '--skip-beads', '--skip-agents', '--codex'],
+    { cwd: root, encoding: 'utf8' },
+  );
+
+  assert.match(output, /legacy unprefixed skill directories detected: plan/);
+  assert.equal(existsSync(legacySkill), true);
+  assert.equal(existsSync(join(root, '.agents', 'skills', 'sdlc-plan', 'SKILL.md')), true);
 });
 
 test('setup --pi installs Pi reviewer profiles without selecting Claude by default', () => {
@@ -48,7 +77,7 @@ test('setup --pi installs Pi reviewer profiles without selecting Claude by defau
 
   assert.equal(existsSync(join(root, '.claude')), false);
   assert.equal(existsSync(join(root, '.codex')), false);
-  assert.equal(existsSync(join(root, '.agents', 'skills', 'implement', 'SKILL.md')), true);
+  assert.equal(existsSync(join(root, '.agents', 'skills', 'sdlc-implement', 'SKILL.md')), true);
   const agents = readdirSync(join(root, '.pi', 'agents')).sort();
   assert.deepEqual(agents, [
     'backend-code-reviewer.md',

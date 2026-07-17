@@ -1,6 +1,6 @@
 ---
-name: cancel
-version: 0.5.0
+name: sdlc-cancel
+version: 0.5.1
 description: Human gate that safely cancels a ticket/plan/Beads/worktree line of work, or cancels only its plan for explicit re-planning, using native ownership and worktree safeguards.
 argument-hint: <number> [plan]
 disable-model-invocation: true
@@ -11,7 +11,7 @@ Cancel `$ARGUMENTS` only on explicit human invocation.
 Scope is the optional second word:
 
 - default: cancel ticket, plan, epic/issues/gates, worktree, and branch;
-- `plan`: cancel only the plan and its execution state; keep the ticket `approved` so `/plan {NNN}` can create a replacement while preserving the cancelled artifact.
+- `plan`: cancel only the plan and its execution state; keep the ticket `approved` so `/sdlc-plan {NNN}` can create a replacement while preserving the cancelled artifact.
 
 ## Inspect before mutation
 
@@ -37,7 +37,7 @@ Show the blast radius and, when any unmerged/dirty/unpushed/stashed work exists,
 - open/claimed children and gate reasons;
 - staged memory candidates, noting that cancellation deliberately does not promote them.
 
-Do not interpret the original `/cancel` invocation as consent to discard unreported data.
+Do not interpret the original `/sdlc-cancel` invocation as consent to discard unreported data.
 
 ## Actor and removal safety
 
@@ -81,4 +81,4 @@ Update only canonical primary-main artifacts:
 
 Commit only the affected status paths with `git commit --only` as `cancel: <ticket title> (ticket {NNN}) - <reason>`. Do not include unrelated staged/dirty files. Push Git and then `BEADS_ACTOR="<session-actor>" bd dolt push` where remotes exist, and report their results independently.
 
-Reruns reuse the closed objects and status commit and finish only missing push/cleanup work; they never duplicate cancellation commits or notes. Report what existed, what was safely destroyed, what was already absent, prior claim/gates, both push states, and, for plan-only scope, `/plan {NNN}` as the next legal transition.
+Reruns reuse the closed objects and status commit and finish only missing push/cleanup work; they never duplicate cancellation commits or notes. Report what existed, what was safely destroyed, what was already absent, prior claim/gates, both push states, and, for plan-only scope, `/sdlc-plan {NNN}` as the next legal transition.

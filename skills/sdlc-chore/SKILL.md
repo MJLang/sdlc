@@ -1,6 +1,6 @@
 ---
-name: chore
-version: 0.5.0
+name: sdlc-chore
+version: 0.5.1
 description: Human-gated lightweight lane that takes one small low-risk change through an AC-tagged ticket, native Beads ownership/worktree, structured review, merge, and post-merge memory audit without a plan or epic.
 argument-hint: <short description of the small change>
 disable-model-invocation: true
@@ -10,7 +10,7 @@ Run the chore lane for `$ARGUMENTS`. Explicit invocation approves this small lan
 
 ## Lane guard
 
-Refuse and direct the user to `/ticket` when any condition fails:
+Refuse and direct the user to `/sdlc-ticket` when any condition fails:
 
 - the change is not a typo, documentation/configuration correction, dependency bump, or tiny low-risk fix;
 - it adds feature surface, schema/public-contract change, or a new pattern;
@@ -37,7 +37,7 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
 
 ## Ticket, Bead, and worktree
 
-1. For new work, allocate `{NNN}` as `/ticket` does. Write the canonical primary-checkout `thoughts/tickets/{NNN}-{slug}.md` with `Status: approved`, `Type: chore`, configured target, 2-5 stable tags, scope, Open Questions, and at least one stable `AC-NNN` outcome. Include `Chore lane - no plan`. Invocation is the ticket approval.
+1. For new work, allocate `{NNN}` as `/sdlc-ticket` does. Write the canonical primary-checkout `thoughts/tickets/{NNN}-{slug}.md` with `Status: approved`, `Type: chore`, configured target, 2-5 stable tags, scope, Open Questions, and at least one stable `AC-NNN` outcome. Include `Chore lane - no plan`. Invocation is the ticket approval.
 2. Create one Bead with the ticket as spec and stable identity, then atomically claim it:
 
    ```bash
@@ -47,7 +47,7 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
    BEADS_ACTOR="<session-actor>" bd update <chore-id> --claim
    ```
 
-   On resume, claim the existing Bead. A different actor blocks the lane; never treat a matching OS/Git user as this session. A new session may resume only after the human verifies the prior session is inactive, establishes a fresh `<recovery-actor>`, and explicitly runs `BEADS_ACTOR="<recovery-actor>" bd update <chore-id> --status=open --assignee="" --append-notes="claim recovery: <evidence>"`; then rerun `/chore` and claim atomically under its new actor.
+   On resume, claim the existing Bead. A different actor blocks the lane; never treat a matching OS/Git user as this session. A new session may resume only after the human verifies the prior session is inactive, establishes a fresh `<recovery-actor>`, and explicitly runs `BEADS_ACTOR="<recovery-actor>" bd update <chore-id> --status=open --assignee="" --append-notes="claim recovery: <evidence>"`; then rerun `/sdlc-chore` and claim atomically under its new actor.
 3. Safely update primary main without stashing/discarding unrelated changes. Create the missing worktree only through:
 
    ```bash
@@ -129,7 +129,7 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
    `sdlc gates --cwd <worktree> --target <target>` and record
    `rebased: <old>-><new> gates=pass`; any code edit invalidates review.
 3. In clean primary main, squash the branch, stage the canonical ticket with `Status: implemented`, and create exactly one `chore: <title> (ticket {NNN})` merge commit.
-4. Only now audit tagged memories against the merged tree and staged candidates using the same keep/refresh/merge/forget conservatism as `/land`. Every added/refreshed memory cites `Source: chore {NNN}, merge commit <sha>`. Append `memory audit: merge=<sha>; kept=...; refreshed=...; merged=...; forgot=...; added=...` to the chore Bead.
+4. Only now audit tagged memories against the merged tree and staged candidates using the same keep/refresh/merge/forget conservatism as `/sdlc-land`. Every added/refreshed memory cites `Source: chore {NNN}, merge commit <sha>`. Append `memory audit: merge=<sha>; kept=...; refreshed=...; merged=...; forgot=...; added=...` to the chore Bead.
 5. If memory work fails, leave the merge commit intact, stop before close/push/cleanup, and record enough completed/pending state for an idempotent resume. Never merge a second time. Retain an acquired merge slot for this incomplete landing when safe; release it only after proving main clean and recording the incomplete merge SHA.
 6. Close the Bead under `<session-actor>`, push Git then `BEADS_ACTOR="<session-actor>" bd dolt push`, and verify both independently. Remove the worktree with `BEADS_ACTOR="<session-actor>" bd worktree remove .worktrees/{NNN}-c-{slug}` without `--force`, then delete local/remote branches.
 7. Release an acquired merge slot only after main is proven clean and Git/Beads pushes succeed, using `BEADS_ACTOR="<session-actor>" bd merge-slot release --holder="<session-actor>" --json`; push Beads again after release. If only native cleanup remains, release and report it. Retain the slot for a recorded incomplete post-merge recovery or whenever main cleanliness is uncertain.

@@ -19,7 +19,7 @@ The workflow keeps each kind of information in one place:
 | One Git worktree per plan | Code changes and saved review artifacts |
 | Epic approval notes | The hash chain that connects approved artifacts to a commit on `main` |
 
-Copies of tickets and plans inside a worktree are snapshots. The canonical text always comes from `main`. `/next` performs one valid transition at a time and stops at every human gate.
+Copies of tickets and plans inside a worktree are snapshots. The canonical text always comes from `main`. `/sdlc-next` performs one valid transition at a time and stops at every human gate.
 
 ## Requirements
 
@@ -54,7 +54,7 @@ To install only the skills for another supported agent:
 
 ```bash
 npx skills add MJLang/sdlc
-npx skills add MJLang/sdlc --skill ticket --skill plan
+npx skills add MJLang/sdlc --skill sdlc-ticket --skill sdlc-plan
 ```
 
 ## Configure a project
@@ -94,7 +94,7 @@ Add product and vision documents to `thoughts/docs/INDEX.md`. Ticket and plan cr
 ### 1. Write a ticket
 
 ```text
-/ticket Add CSV export with filter validation
+/sdlc-ticket Add CSV export with filter validation
 ```
 
 This creates `thoughts/tickets/{NNN}-*.md` with a summary, scope, and stable acceptance criteria such as `AC-001` and `AC-002`. New tickets have `Status: draft`.
@@ -106,7 +106,7 @@ Read the ticket, then change `Status: draft` to `Status: approved`. That deliber
 ### 3. Write the plan
 
 ```text
-/plan 024
+/sdlc-plan 024
 ```
 
 The planner researches the repository. When the work has material unknowns, it may start up to three isolated, read-only research tracks. It then writes `thoughts/plans/024-*.md`. Each numbered step has `Covers:`, `Files:`, `Depends on:`, and `Parallelizable:` fields. The plan also includes `Current-State Findings` and an `Approval Attention` section for risky operations. Its `Verification` section maps every acceptance criterion to an exercise.
@@ -116,27 +116,27 @@ The bundled `plan-reviewer` runs one critique. If the planner fixes a blocker, t
 ### 4. Approve the plan
 
 ```text
-/approve 024
+/sdlc-approve 024
 ```
 
-Approval creates a Beads epic and its dependent step issues. It commits the ticket, plan, and research synthesis to `main`, then records their approval hash chain on the epic. If you edit an approved artifact, implementation stops until `/approve 024` records the amendment.
+Approval creates a Beads epic and its dependent step issues. It commits the ticket, plan, and research synthesis to `main`, then records their approval hash chain on the epic. If you edit an approved artifact, implementation stops until `/sdlc-approve 024` records the amendment.
 
 ### 5. Implement the plan
 
 ```text
-/implement 024
+/sdlc-implement 024
 ```
 
 Implementation first runs the compact `implement` guard. It claims the epic with an identity unique to the current session, creates a Beads-managed worktree, and works through dependency-ordered step packets. Each step returns a fixed handoff, runs `sdlc gates`, and commits and pushes before its issue closes.
 
-When the steps are done, sdlc builds review packets for each lane and includes a complete list of changed files. Blocking questions become Beads gates for a person to resolve. `/implement` never merges the work.
+When the steps are done, sdlc builds review packets for each lane and includes a complete list of changed files. Blocking questions become Beads gates for a person to resolve. `/sdlc-implement` never merges the work.
 
 ### 6. Inspect the work locally
 
 This step is optional.
 
 ```text
-/review 024
+/sdlc-review 024
 ```
 
 You can also run `sdlc review 024` in a terminal with `--editor`, `--artifact`, `--diff`, or `--preview`. The command locates the worktree, canonical ticket and plan, diff, review artifact, and doctor summary. It is read-only and does not record approval.
@@ -144,14 +144,14 @@ You can also run `sdlc review 024` in a terminal with `--editor`, `--artifact`, 
 ### 7. Land the change
 
 ```text
-/land 024
+/sdlc-land 024
 ```
 
 Landing checks the reviewed code SHA and the identity of the approved plan. It squash-merges the work into `main`, audits and promotes project memory from the merged result, closes the epic, and removes the worktree and branch. Landing is the final human gate.
 
 ### Small changes
 
-`/chore fix the typo in the export header` skips the plan. In one human-invoked pass, it creates a ticket, opens a worktree, runs the gates and review, then merges under the same safety and review contracts.
+`/sdlc-chore fix the typo in the export header` skips the plan. In one human-invoked pass, it creates a ticket, opens a worktree, runs the gates and review, then merges under the same safety and review contracts.
 
 ### Discovery work
 
@@ -159,23 +159,23 @@ Use `Type: discovery` for feasibility spikes, compatibility studies, performance
 
 ### Autonomous progress
 
-`/next` reads one compact, deterministic `sdlc snapshot`. It performs the first selected transition, preferring implementation over planning, or reports that the queue is idle. An idle run starts no subagent and gathers no more facts. You can pair `/next` with your agent's loop feature to keep work moving, but it can never approve, land, or cancel anything.
+`/sdlc-next` reads one compact, deterministic `sdlc snapshot`. It performs the first selected transition, preferring implementation over planning, or reports that the queue is idle. An idle run starts no subagent and gathers no more facts. You can pair `/sdlc-next` with your agent's loop feature to keep work moving, but it can never approve, land, or cancel anything.
 
 ### Status and recovery
 
-`/queue` is a read-only dashboard for work that needs a person, work in progress, and stale or drifted state. It includes the exact recovery command for each problem. Use `/cancel 024` to cancel a line of work or `/cancel 024 plan` to discard the plan and plan the same ticket again.
+`/sdlc-queue` is a read-only dashboard for work that needs a person, work in progress, and stale or drifted state. It includes the exact recovery command for each problem. Use `/sdlc-cancel 024` to cancel a line of work or `/sdlc-cancel 024 plan` to discard the plan and plan the same ticket again.
 
 ## Core rules
 
 - Tickets explain what to build and why. Plans explain how to build it. Stable acceptance criterion IDs connect the ticket to plan steps and final verification.
 - Supported types are `feature`, `bug`, `refactor`, `chore`, and planned `discovery`. Only the deliberately bounded chore lane has no plan.
-- People control the gates. Ticket approval requires a deliberate edit, and `/ticket`, `/approve`, `/land`, `/chore`, and `/cancel` never run autonomously.
+- People control the gates. Ticket approval requires a deliberate edit, and `/sdlc-ticket`, `/sdlc-approve`, `/sdlc-land`, `/sdlc-chore`, and `/sdlc-cancel` never run autonomously.
 - Frontmatter records gates; Beads records current activity. Artifacts do not have an `in progress` status.
 - Ticket and plan text on `main` is canonical. Worktree copies are snapshots, and implementers and reviewers receive absolute canonical paths plus the approved plan hash.
-- `/approve` commits the gate artifacts and appends their normalized hashes, along with a reachable `main` commit, to the epic.
+- `/sdlc-approve` commits the gate artifacts and appends their normalized hashes, along with a reachable `main` commit, to the epic.
 - Every plan uses a separate worktree. Each step is pushed before its issue closes, so a crashed session does not strand unpushed work.
-- A saved aggregate review binds the exact code SHA to the approved plan. `/land` rejects review evidence after it becomes stale.
-- Implementation stages memory candidates. `/land` promotes only facts that remain true in the merged result.
+- A saved aggregate review binds the exact code SHA to the approved plan. `/sdlc-land` rejects review evidence after it becomes stale.
+- Implementation stages memory candidates. `/sdlc-land` promotes only facts that remain true in the merged result.
 
 The full generated project contract is in [`template/thoughts/AGENTS.md`](template/thoughts/AGENTS.md).
 
@@ -266,7 +266,7 @@ Doctor rejects missing or unknown coverage unless a person records the same reas
 
 ### Reproducible approval
 
-Plans record `Source Ticket Hash: sha256=<hex>`. After `/approve` commits the gate artifacts, it appends this record to the epic:
+Plans record `Source Ticket Hash: sha256=<hex>`. After `/sdlc-approve` commits the gate artifacts, it appends this record to the epic:
 
 ```text
 approval: plan-sha256=<hex> ticket-sha256=<hex> commit=<main-sha>
@@ -276,7 +276,7 @@ The newest reproducible record is authoritative. Its commit must be reachable fr
 
 ### Adaptive research
 
-Research is a bounded part of `/plan`, not a separate pipeline state. Simple work stays in the planning session. Material unknowns in the repository can become up to three independent, read-only research tracks. Researchers cite `file:line`, retain disagreements and unanswered questions, report confidence, and do not plan or edit.
+Research is a bounded part of `/sdlc-plan`, not a separate pipeline state. Simple work stays in the planning session. Material unknowns in the repository can become up to three independent, read-only research tracks. Researchers cite `file:line`, retain disagreements and unanswered questions, report confidence, and do not plan or edit.
 
 At most one summary is saved to `thoughts/designs/{NNN}-research.md`. It is tied to the ticket hash and a Git baseline. Editing the ticket invalidates all of the research. An unrelated landing invalidates none of it. Only tracks whose cited evidence paths changed need to run again.
 
@@ -304,17 +304,17 @@ Verdict: APPROVED
 
 The first round uses `Fix-Disposition: N/A`. Any code change invalidates earlier approvals. If the number of MUST FIX findings fails to decrease in a round, sdlc saves the artifact, labels the epic `human`, and stops unattended review. Plans allow at most three rounds and chores allow two. A retry for a malformed artifact at the same HEAD does not consume a round.
 
-Before adding its binding note to the epic, sdlc commits the approved aggregate. The note has the form `review: APPROVED sha=... code-sha=... plan-sha256=... plan-commit=... rounds=<n>`. `/land` reproduces every identity in that record.
+Before adding its binding note to the epic, sdlc commits the approved aggregate. The note has the form `review: APPROVED sha=... code-sha=... plan-sha256=... plan-commit=... rounds=<n>`. `/sdlc-land` reproduces every identity in that record.
 
 ### Native Beads safety
 
 sdlc uses specific Beads features without asking Beads to act as another workflow engine:
 
 - A session-specific actor, `BEADS_ACTOR=sdlc:<runtime>:<session-id>`, prevents concurrent sessions from sharing claims.
-- Research, critique, code review, snapshots, `/queue`, `/review`, and doctor use native Beads `--readonly` enforcement. Prompts are not the security boundary.
+- Research, critique, code review, snapshots, `/sdlc-queue`, `/sdlc-review`, and doctor use native Beads `--readonly` enforcement. Prompts are not the security boundary.
 - A blocking implementation question creates a dedicated human gate for the step. Resolving the gate does not close unfinished work. The `human` label remains a separate, non-gating escalation signal.
 - sdlc creates, finds, and safely removes worktrees through `bd worktree`. Dirty files, unpushed commits, and stashes stop normal cleanup.
-- Doctor and `/queue` report health, dependency cycles, gates, possible stale claims corroborated by Git activity, and orphaned commits that refer to issues. These are recovery clues, not permission for an autonomous repair.
+- Doctor and `/sdlc-queue` report health, dependency cycles, gates, possible stale claims corroborated by Git activity, and orphaned commits that refer to issues. These are recovery clues, not permission for an autonomous repair.
 - Merge slots, which serialize landing, and Dolt server mode are conservative, opt-in settings. `bd batch` is limited to amendment subsets supported by its transaction grammar and is never presented as atomic across Git and Beads.
 
 ### Bundled agents
@@ -330,13 +330,17 @@ All four agents are read-only. `setup --claude` installs Claude Code definitions
 
 ### Tagged project memory
 
-The project prime installed by setup contains workflow pointers but no memory bodies. Each ticket carries two to five stable retrieval tags. Planning searches for exact `tag:<tag>` markers and recalls only applicable keys. Implementation appends `memory-candidate:` notes. After the squash merge, `/land` promotes only facts that are still true and records the merge SHA as provenance. Cancelled work never promotes its candidates.
+The project prime installed by setup contains workflow pointers but no memory bodies. Each ticket carries two to five stable retrieval tags. Planning searches for exact `tag:<tag>` markers and recalls only applicable keys. Implementation appends `memory-candidate:` notes. After the squash merge, `/sdlc-land` promotes only facts that are still true and records the merge SHA as provenance. Cancelled work never promotes its candidates.
+
+### Migrate an existing install to 0.5.1
+
+Version 0.5.1 namespaces every pipeline skill with `sdlc-` to avoid collisions with harness-native commands. Run setup again with the required agent target and `--force`, then verify and remove stale unprefixed SDLC skill directories such as `.agents/skills/plan/` and `.claude/skills/plan/`. The commands now use `/sdlc-ticket`, `/sdlc-plan`, `/sdlc-approve`, `/sdlc-implement`, `/sdlc-review`, `/sdlc-land`, `/sdlc-chore`, `/sdlc-cancel`, `/sdlc-next`, and `/sdlc-queue`.
 
 ### Migrate an existing install to 0.4
 
 Run setup again with the required agent target and `--force`. This refreshes the compact contracts, skills, reviewer profiles, and managed prime. Setup creates the documentation index only when it is missing, so it keeps a project-curated index intact. Add the ordered `Quality gates` plus any repeated `Target gates` and `Target paths` lines to Project Configuration. A project without `Target paths` remains safe, but review packets retain the complete diffs so the model can classify them explicitly.
 
-The old `pipeline-snapshot` profile is no longer installed. Remove stale copies from `.claude/agents/pipeline-snapshot.md` and `.codex/agents/pipeline-snapshot.toml`. `/next` and `/queue` now call `sdlc snapshot` directly.
+The old `pipeline-snapshot` profile is no longer installed. Remove stale copies from `.claude/agents/pipeline-snapshot.md` and `.codex/agents/pipeline-snapshot.toml`. `/sdlc-next` and `/sdlc-queue` now call `sdlc snapshot` directly.
 
 Gate logs can contain sensitive test output. sdlc retains ten owner-only, capped runs in Git common state or the documented temporary fallback, never in the worktree.
 
@@ -348,7 +352,7 @@ The shape of an artifact selects its contract; there is no hidden version file.
 
 - A plan uses the current contract when it has both `Source Ticket Hash` and a reproducible `approval:` record. If either is missing, it is `legacy`.
 - Before approval, legacy tickets and plans need acceptance criterion IDs, `Covers:` fields, the source hash, all required sections, and a critique.
-- Approved legacy work with open issues pauses in `/queue` for an explicit `/approve` resync that preserves step and issue IDs.
+- Approved legacy work with open issues pauses in `/sdlc-queue` for an explicit `/sdlc-approve` resync that preserves step and issue IDs.
 - Completed legacy work with a valid legacy review can land through the compatibility parser, which prints a prominent warning.
 - A legacy claim that shares an identity must be reassigned explicitly. Existing step-level `human` labels finish through the legacy path.
 
