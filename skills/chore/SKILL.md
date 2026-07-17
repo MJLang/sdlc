@@ -1,6 +1,6 @@
 ---
 name: chore
-version: 0.4.0
+version: 0.5.0
 description: Human-gated lightweight lane that takes one small low-risk change through an AC-tagged ticket, native Beads ownership/worktree, structured review, merge, and post-merge memory audit without a plan or epic.
 argument-hint: <short description of the small change>
 disable-model-invocation: true

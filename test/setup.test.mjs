@@ -33,6 +33,15 @@ test('setup installs the docs index and exactly four reviewer profiles', () => {
   assert.equal(agents.some((file) => file.includes('pipeline-snapshot')), false);
 });
 
+test('setup installs discovery workflow contracts in templates and skills', () => {
+  const root = gitRepository();
+  execFileSync(process.execPath, [cli, 'setup', '--skip-beads', '--skip-agents', '--codex'], { cwd: root, stdio: 'ignore' });
+  assert.match(readFileSync(join(root, 'thoughts', 'AGENTS.md'), 'utf8'), /Discovery is planned work/);
+  const installed = readFileSync(join(root, '.agents', 'skills', 'implement', 'SKILL.md'), 'utf8');
+  assert.match(installed, /Discovery Result - Ticket/);
+  assert.match(installed, /Outcome: validated \| invalidated/);
+});
+
 test('setup installs an idempotent project prime whose fresh-session output contains no memory bodies', { skip: !installedBeads, timeout: 60_000 }, () => {
   const root = gitRepository();
   const actor = 'sdlc:test:setup-prime';

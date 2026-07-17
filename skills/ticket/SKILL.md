@@ -1,8 +1,9 @@
 ---
 name: ticket
-version: 0.4.0
-description: Create a new work ticket in thoughts/tickets from an idea. Use when the user describes a feature, bug, refactor, or chore that should enter the ticket-to-plan-to-implement pipeline.
+version: 0.5.0
+description: Create a new work ticket in thoughts/tickets from an idea. Use when the user describes a feature, bug, refactor, chore, or discovery that should enter the ticket-to-plan-to-implement pipeline.
 argument-hint: <one-line idea or description>
+disable-model-invocation: true
 ---
 
 Create the intent artifact for `$ARGUMENTS` under the pipeline in `thoughts/AGENTS.md`.
@@ -11,7 +12,8 @@ Create the intent artifact for `$ARGUMENTS` under the pipeline in `thoughts/AGEN
 
 1. Allocate `{NNN}` as one more than the highest number used by any file in `thoughts/tickets/` or `thoughts/plans/`, zero-padded to three digits.
 2. Infer:
-   - `Type: feature | bug | refactor | chore`;
+   - `Type: feature | bug | refactor | chore | discovery`.
+   - Use `discovery` when the outcome tests feasibility, compatibility, limits, performance, or an architectural assumption. Its ACs state the question/hypothesis, observable experiments, decision thresholds, retained evidence, and required disposition after either result.
    - a configured Project Configuration target;
    - 2-5 stable lowercase retrieval tags, starting with the target and followed by useful domain or technology terms.
 

@@ -152,6 +152,10 @@ Landing checks the reviewed code SHA and the identity of the approved plan. It s
 
 `/chore fix the typo in the export header` skips the plan. In one human-invoked pass, it creates a ticket, opens a worktree, runs the gates and review, then merges under the same safety and review contracts.
 
+### Discovery work
+
+Use `Type: discovery` for feasibility spikes, compatibility studies, performance limits, and architectural assumptions. Discovery follows the normal approved `ticket -> plan -> approve -> implement -> review -> land` lifecycle; it is not a larger chore. Its plan records a Discovery Protocol, and implementation retains `thoughts/designs/{NNN}-discovery.md` with the approved identities, experiment evidence, cleanup, and either a `validated` or `invalidated` decision. Both can complete the discovery; a replacement implementation still needs its own approved ticket and plan.
+
 ### Autonomous progress
 
 `/next` reads one compact, deterministic `sdlc snapshot`. It performs the first selected transition, preferring implementation over planning, or reports that the queue is idle. An idle run starts no subagent and gathers no more facts. You can pair `/next` with your agent's loop feature to keep work moving, but it can never approve, land, or cancel anything.
@@ -163,7 +167,8 @@ Landing checks the reviewed code SHA and the identity of the approved plan. It s
 ## Core rules
 
 - Tickets explain what to build and why. Plans explain how to build it. Stable acceptance criterion IDs connect the ticket to plan steps and final verification.
-- People control the gates. Ticket approval requires a deliberate edit, and `/approve`, `/land`, `/chore`, and `/cancel` never run autonomously.
+- Supported types are `feature`, `bug`, `refactor`, `chore`, and planned `discovery`. Only the deliberately bounded chore lane has no plan.
+- People control the gates. Ticket approval requires a deliberate edit, and `/ticket`, `/approve`, `/land`, `/chore`, and `/cancel` never run autonomously.
 - Frontmatter records gates; Beads records current activity. Artifacts do not have an `in progress` status.
 - Ticket and plan text on `main` is canonical. Worktree copies are snapshots, and implementers and reviewers receive absolute canonical paths plus the approved plan hash.
 - `/approve` commits the gate artifacts and appends their normalized hashes, along with a reachable `main` commit, to the epic.

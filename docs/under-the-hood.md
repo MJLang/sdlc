@@ -369,7 +369,7 @@ Each packet also carries:
 - the newest persisted gate summary; and
 - prior stable finding IDs for later rounds.
 
-Chores use the same packet shape with an explicit `N/A` plan identity.
+Chores use the same packet shape with an explicit `N/A` plan identity. Discovery always uses its normal approved-plan identity and includes its validated or invalidated result report in the inventory.
 
 ## Review evidence and convergence
 
@@ -485,7 +485,18 @@ If the merge succeeded but memory, push, close, or cleanup did not, a rerun
 enters `post-merge-recovery`. It proves the existing merge and resumes after it;
 it never creates a second merge commit.
 
-### Chore and cancellation lanes
+### Discovery, chore, and cancellation lanes
+
+`Type: discovery` is planned evidence-producing work: feasibility spikes,
+compatibility studies, performance limits, and architectural assumptions use
+the ordinary ticket, plan, approval, implementation, review, and land path.
+The plan's Discovery Protocol declares the hypothesis, experiment matrix,
+environment, thresholds, evidence paths, external-resource attention, retained
+probe scope, cleanup, and result dispositions. Before review/land, the worktree
+must contain `thoughts/designs/{NNN}-discovery.md`, bound to the approved ticket
+and plan hashes. It maps every AC to its experiment, threshold, observation,
+evidence path, and pass/invalidated/blocked disposition. `validated` and
+`invalidated` both complete the discovery; `inconclusive` is never terminal.
 
 `/chore` is a bounded shortcut for tiny low-risk work. It creates an approved
 chore ticket and one Bead, but no plan or epic. It still uses a native worktree,

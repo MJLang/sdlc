@@ -64,6 +64,7 @@ copy, or rebase artifact snapshots into a live worktree.
 - AC IDs and plan-step numbers are stable after planning. Removed entries stay
   visible with reasons; approval waivers are explicit in both artifacts and
   epic notes.
+- Discovery is planned work (`ticket -> plan -> approve -> implement -> review -> land`), not a chore lane. Its result is `thoughts/designs/{NNN}-discovery.md`; either `validated` or `invalidated` may complete it, while inconclusive work remains active behind an amended protocol or human gate.
 - Implementation commits and pushes a step before closing its issue. Review
   runs after all active children close and persists one aggregate artifact per
   completed round. Only `/land` merges.

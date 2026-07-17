@@ -1,6 +1,6 @@
 ---
 name: approve
-version: 0.4.0
+version: 0.5.0
 description: Human gate that commits and approves a reviewed plan, creates its traceable Beads graph and approval hash record, or safely re-syncs an amended approved plan.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true
@@ -22,6 +22,7 @@ Refuse a missing/draft/cancelled/merged plan. Never treat Git and Beads as one a
 - Step numbers and AC IDs are immutable after first approval. Preserve removals with reasons and allocate new numbers above the prior maximum.
 - `Source Ticket Hash` must equal `sdlc hash <canonical-ticket-path>` before the gate commit. A changed ticket requires the plan's coverage, Verification, research validity, and critique to be reconsidered; never update only the hash.
 - Every live AC has implementation and Verification coverage, every `Covers:` ID exists, and the step dependency graph is valid and acyclic.
+- A discovery plan additionally has a complete Discovery Protocol. Approval does not authorize a final conclusion in advance: both validation and invalidation thresholds, resource attention, cleanup, and follow-up dispositions must remain explicit.
 - Surface every Open Question and research Remaining Unknown. Resolve it, explicitly defer it outside this plan with a rationale, or record the human's reasoned waiver; never approve by omission.
 - Every unresolved `PC-NNN` blocker or uncovered AC must be corrected or explicitly waived by this human. Record each waiver in the plan and on the epic as `waiver: id=<id>; reason=<reason>` (an AC may additionally be marked `AC-NNN [waived] - reason: <reason>; waived by human`); a silent, negative, or inferred mention is invalid.
 - Plan approval authorizes disclosed repository edits. Approval Attention operations that require execution-time consent remain separate gates.

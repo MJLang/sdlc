@@ -1,6 +1,6 @@
 ---
 name: cancel
-version: 0.4.0
+version: 0.5.0
 description: Human gate that safely cancels a ticket/plan/Beads/worktree line of work, or cancels only its plan for explicit re-planning, using native ownership and worktree safeguards.
 argument-hint: <number> [plan]
 disable-model-invocation: true

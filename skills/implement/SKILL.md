@@ -1,6 +1,6 @@
 ---
 name: implement
-version: 0.4.0
+version: 0.5.0
 description: Implement an approved, fingerprinted plan in a Beads-managed worktree, execute its dependency graph, and run the bounded structured aggregate review. Use when doctor reports a plan healthy and ready for execution.
 argument-hint: <plan number, e.g. 003>
 ---
@@ -108,6 +108,33 @@ memory-candidate: key=<stable-slug>; tags=<comma-list>; finding=<fact>; why=<rea
 `/land` evaluates and promotes them after a merge commit exists. Candidates from cancelled work deliberately remain unpromoted.
 
 ## Aggregate review
+
+For a discovery, before aggregate review create `thoughts/designs/{NNN}-discovery.md` in the worktree. It must use this contract:
+
+```md
+---
+Ticket: thoughts/tickets/{ticket-file}
+Plan: thoughts/plans/{plan-file}
+Ticket-Hash: sha256=<approved ticket hash>
+Plan-Hash: sha256=<approved plan hash>
+Baseline: <implementation baseline commit>
+Generated-At: <ISO-8601 UTC>
+Outcome: validated | invalidated
+---
+
+# Discovery Result - Ticket {NNN}
+
+## Question and Hypothesis
+## Environment and Versions
+## Experiment Matrix
+## Findings
+## Decision
+## Retained Artifacts
+## Resource Cleanup
+## Follow-up Disposition
+```
+
+The matrix maps every AC to its command/fixture, predeclared threshold, observed result, durable evidence path, and `pass`, `invalidated`, or `blocked` disposition. Remove disposable scaffolding/resources and retain only reusable probes or regression fixtures. A missing, malformed, or `inconclusive` result blocks review and landing.
 
 Run `sdlc guard review {NNN}` and require an accepted matrix row before review.
 It proves all active children closed, no gate/escalation, a clean worktree, and

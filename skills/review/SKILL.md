@@ -1,6 +1,6 @@
 ---
 name: review
-version: 0.4.0
+version: 0.5.0
 description: Prepare an implemented plan's Beads-visible worktree, approved-plan identity, diff, and persisted aggregate review for local human inspection without changing pipeline state.
 ---
 
@@ -28,6 +28,7 @@ Require `<NNN>`; never guess among plans.
    - native Beads-visible worktree path, branch HEAD, merge base, dirty state, and diff stat;
    - latest `thoughts/reviews/<NNN>-round*.md`, reading only its identity header
      and `## Overall` block after the guard accepts it.
+   - for discovery, `thoughts/designs/{NNN}-discovery.md`, including outcome and evidence paths. Verify every AC, predeclared thresholds, reproducibility, unsupported conclusions, retained-code scope, and resource cleanup. Discovery always uses normal approved-plan identity, never chore `N/A` identity.
 3. Treat worktree ticket/plan copies as snapshots. Report skew as informational and keep linking the canonical main files; never recommend copying or rebasing amended artifact text into the worktree.
 4. Use the guard result for component grammar, structured controls, review-note
    and plan-approval bindings, and clean-rebase-chain validation. Warn plainly

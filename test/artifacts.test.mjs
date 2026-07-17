@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parsePlan, parseResearchSynthesis, parseTicket, researchReuseDecision } from '../lib/artifacts.mjs';
+import { parseDiscoveryResult, parsePlan, parseResearchSynthesis, parseTicket, researchReuseDecision } from '../lib/artifacts.mjs';
 import { fingerprintContent } from '../lib/fingerprint.mjs';
 
 function ticketText() {
@@ -81,6 +81,111 @@ test('ticket and plan parsers enforce identifiers, coverage, and graph fields', 
   assert.deepEqual(plan.coverage.missingImplementation, []);
   assert.deepEqual(plan.coverage.missingVerification, []);
   assert.deepEqual(plan.errors, []);
+});
+
+test('discovery ticket, protocol, and validated or invalidated results parse', () => {
+  const ticketSource = ticketText().replace('Type: feature', 'Type: discovery');
+  const ticket = parseTicket(ticketSource, { path: 'thoughts/tickets/023-export.md' });
+  const planSource = planText(fingerprintContent(ticketSource)).replace('Type: feature', 'Type: discovery').replace('## Plan Critique', `## Discovery Protocol
+
+Question and Hypothesis: Can export run within the limit?
+Experiment Matrix: AC-001 command: npm test; threshold: pass; observed: pending; evidence path: thoughts/evidence/export.txt; disposition: pass. AC-002 fixture: bad-filter; threshold: reject; observed: pending; evidence path: thoughts/evidence/filter.txt; disposition: invalidated.
+Versions and Environment: Node 22 on CI.
+Success and Invalidation Thresholds: Complete under 1 second; invalidate otherwise.
+Expected Evidence Paths: thoughts/evidence/export.txt.
+External Resources: costs none; credentials none; Approval Attention: None.
+Retained Probe Code: tests/export-probe.mjs only.
+Cleanup Procedure: Remove temporary fixtures and resources.
+Follow-up Disposition: Validated creates a new approved implementation ticket; invalidated records rejection.
+
+## Plan Critique`);
+  const plan = parsePlan(planSource, { path: 'thoughts/plans/023-d-export.md', ticket });
+  assert.deepEqual(ticket.errors, []);
+  assert.deepEqual(plan.errors, []);
+  for (const outcome of ['validated', 'invalidated']) {
+    const result = parseDiscoveryResult(`---
+Ticket: thoughts/tickets/023-export.md
+Plan: thoughts/plans/023-d-export.md
+Ticket-Hash: sha256=${fingerprintContent(ticketSource)}
+Plan-Hash: sha256=${fingerprintContent(planSource)}
+Baseline: abcdef1
+Generated-At: 2026-07-16T00:00:00Z
+Outcome: ${outcome}
+---
+
+# Discovery Result - Ticket 023
+
+## Question and Hypothesis
+
+Question.
+
+## Environment and Versions
+
+Node 22.
+
+## Experiment Matrix
+
+| AC | fixture or command | predeclared threshold | observed result | durable evidence path | disposition |
+| --- | --- | --- | --- | --- | --- |
+| AC-001 | npm test | threshold pass | observed pass | thoughts/evidence/a.txt | pass |
+| AC-002 | fixture | threshold reject | observed reject | thoughts/evidence/b.txt | invalidated |
+
+## Findings
+
+Findings.
+
+## Decision
+
+Decision.
+
+## Retained Artifacts
+
+None.
+
+## Resource Cleanup
+
+Complete.
+
+## Follow-up Disposition
+
+Create a separately approved ticket if needed.
+`, { ticket, plan, ticketSha256: fingerprintContent(ticketSource), planSha256: fingerprintContent(planSource) });
+    assert.equal(result.valid, true, result.errors.join('\n'));
+  }
+});
+
+test('discovery result rejects inconclusive outcome, identity drift, and absent AC evidence', () => {
+  const result = parseDiscoveryResult(`---
+Ticket: wrong
+Plan: wrong
+Ticket-Hash: sha256=${'a'.repeat(64)}
+Plan-Hash: sha256=${'b'.repeat(64)}
+Baseline: abcdef1
+Generated-At: 2026-07-16T00:00:00Z
+Outcome: inconclusive
+---
+
+## Question and Hypothesis
+x
+## Environment and Versions
+x
+## Experiment Matrix
+fixture command threshold observed evidence path blocked
+## Findings
+x
+## Decision
+x
+## Retained Artifacts
+x
+## Resource Cleanup
+x
+## Follow-up Disposition
+x
+`, { ticket: { path: 'thoughts/tickets/001-a.md', activeAcceptanceCriteria: ['AC-001'] }, plan: { path: 'thoughts/plans/001-d-a.md' }, ticketSha256: 'c'.repeat(64), planSha256: 'd'.repeat(64) });
+  assert.equal(result.valid, false);
+  assert(result.errors.some((error) => error.includes('validated or invalidated')));
+  assert(result.errors.some((error) => error.includes('does not match')));
+  assert(result.errors.some((error) => error.includes('missing AC-001')));
 });
 
 test('plan parser reports unknown IDs, missing coverage, and dependency cycles', () => {

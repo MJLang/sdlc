@@ -1,6 +1,6 @@
 ---
 name: land
-version: 0.4.0
+version: 0.5.0
 description: Human gate that verifies the reviewed code and approved-plan fingerprint, optionally acquires the Beads merge slot, squash-merges to main, performs the post-merge memory audit, and safely closes and cleans up.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true
@@ -33,6 +33,8 @@ After an accepted normal guard, read only the aggregate identity header and
 `## Overall` block. Every Beads observation remains `bd --readonly`; never run a
 repair command. Completed legacy work uses only the explicit closeout path;
 open legacy work requires `/approve` migration.
+
+For discovery, the guard also requires a valid `thoughts/designs/{NNN}-discovery.md`. Append its `validated|invalidated` outcome and report path to the epic notes and include both in the final handoff. An invalidated result completes only the tested discovery, not a replacement architecture or production implementation.
 
 ## Session actor and optional merge slot
 

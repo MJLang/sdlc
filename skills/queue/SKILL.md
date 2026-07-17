@@ -1,6 +1,6 @@
 ---
 name: queue
-version: 0.4.0
+version: 0.5.0
 description: Format the deterministic read-only pipeline snapshot as a compact human dashboard.
 ---
 

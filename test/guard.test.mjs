@@ -86,6 +86,17 @@ test('implement review mode and review guard require closed children and a clean
   assert.equal(dirty.errors[0].code, 'worktree-dirty');
 });
 
+test('discovery review requires a valid result only after implementation is complete', () => {
+  const closed = diagnosis({
+    inspection: { ...diagnosis().inspection, ticket: { frontmatter: { Type: 'discovery' } }, children: [{ id: 'step-1', status: 'closed' }] },
+    discovery: { path: 'thoughts/designs/001-discovery.md', valid: false, errors: ['Discovery result artifact is missing.'] },
+  });
+  assert.equal(evaluateGuard('implement', closed).fields.mode, 'review');
+  assert.equal(evaluateGuard('review', closed).errors[0].code, 'discovery-result-invalid');
+  const valid = { ...closed, discovery: { path: 'thoughts/designs/001-discovery.md', outcome: 'invalidated', valid: true, errors: [] } };
+  assert.equal(evaluateGuard('review', valid).fields.mode, 'pending');
+});
+
 test('land requires an approved bound review and resolved AA gate evidence', () => {
   const closed = diagnosis({
     inspection: { ...diagnosis().inspection, children: [{ id: 'step-1', status: 'closed' }] },

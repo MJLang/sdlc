@@ -1,6 +1,6 @@
 ---
 name: next
-version: 0.4.0
+version: 0.5.0
 description: Deterministic autonomous dispatcher that performs exactly one snapshot-selected plan or implement transition and reports human gates.
 disable-model-invocation: true
 ---

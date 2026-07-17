@@ -1,6 +1,6 @@
 ---
 name: plan
-version: 0.4.0
+version: 0.5.0
 description: Research and write a traceable implementation plan for an approved ticket, then run the bounded independent plan critique. Use when an approved ticket needs a concrete plan before implementation.
 argument-hint: <ticket number, e.g. 003>
 ---
@@ -114,6 +114,8 @@ The body must contain:
 - **Approval Attention** - a table with `ID | Operation or decision | Why attention is required | Timing | Status`, or `None`;
 - **Open Questions** - include research unknowns and human decisions, or `None`;
 - **Plan Critique** - the visible critique record described below.
+
+For `Type: discovery`, also include **Discovery Protocol** with non-empty fields: `Question and Hypothesis`, `Experiment Matrix`, `Versions and Environment`, `Success and Invalidation Thresholds`, `Expected Evidence Paths`, `External Resources` (costs, credentials, and Approval Attention), `Retained Probe Code`, `Cleanup Procedure`, and `Follow-up Disposition`. Define both validation and invalidation outcomes; discovery is complete with evidence and a decision, never an inconclusive final outcome.
 
 ```md
 ### Step 2 - Apply validated export filters
