@@ -3,7 +3,7 @@
  * @mlangroman/sdlc — project bootstrapper for the ticket → plan → implement → land pipeline.
  *
  * Usage:
- *   npx @mlangroman/sdlc setup [--claude|--codex] [--force] [--skip-skills] [--skip-beads]
+ *   npx @mlangroman/sdlc setup [--claude|--codex|--pi] [--force] [--skip-skills] [--skip-beads]
  */
 
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -35,8 +35,10 @@ const args = process.argv.slice(2);
 const command = args.find((a) => !a.startsWith('-'));
 const flags = new Set(args.filter((a) => a.startsWith('-')));
 const force = flags.has('--force') || flags.has('-f');
-const installClaude = flags.has('--claude') || !flags.has('--codex');
+const hasAgentTarget = flags.has('--claude') || flags.has('--codex') || flags.has('--pi');
+const installClaude = flags.has('--claude') || !hasAgentTarget;
 const installCodex = flags.has('--codex');
+const installPi = flags.has('--pi');
 
 const SKILLS_DIR = join(pkgRoot, 'skills');
 const THOUGHTS_SUBDIRS = ['tickets', 'plans', 'designs', 'docs', 'reviews'];
@@ -73,6 +75,7 @@ Options:
   --force, -f      Overwrite existing thoughts/AGENTS.md, root AGENTS.md, skills, and agents
   --claude         Install skills and bundled agents for Claude Code (default)
   --codex          Install skills and bundled agents for Codex
+  --pi             Install skills and pi-subagents-compatible reviewer profiles for Pi
   --skip-skills    Do not install skills
   --skip-agents    Do not install bundled agents
   --skip-beads     Do not run bd init
@@ -100,7 +103,7 @@ What setup does:
   2. Creates thoughts/{${THOUGHTS_SUBDIRS.join(',')}} + compact instructions/docs index (+ CLAUDE.md symlink)
   3. Creates a root AGENTS.md (if missing) and a root CLAUDE.md → AGENTS.md symlink
   4. Installs pipeline skills into .agents/skills/ (symlinked into .claude/skills/ for Claude)
-  5. Installs four bundled read-only reviewer profiles into .claude/agents/ (Claude) or .codex/agents/ (Codex)
+  5. Installs four bundled read-only reviewer profiles into .claude/agents/ (Claude), .codex/agents/ (Codex), or .pi/agents/ (Pi with pi-subagents)
   6. Verifies Beads >= 1.1.0 and initializes it (unless --skip-beads)
   7. Installs/updates a minimal .beads/PRIME.md with no memory bodies
 
@@ -545,6 +548,43 @@ function renderCodexAgent(source) {
   ].join('\n');
 }
 
+function renderPiAgent(source) {
+  const contents = readFileSync(source, 'utf8');
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) throw new Error(`Reviewer template is missing frontmatter: ${source}`);
+
+  const name = frontmatterValue(match[1], 'name');
+  const description = frontmatterValue(match[1], 'description');
+  if (!name || !description) throw new Error(`Reviewer template is missing name or description: ${source}`);
+
+  const body = contents
+    .slice(match[0].length)
+    .trim()
+    .replaceAll('.claude/skills/', '.agents/skills/')
+    .replaceAll('frontend-code-reviewer sub-agent', 'frontend-code-reviewer Pi subagent');
+  const instructions = [
+    '## Pi operating constraints',
+    '',
+    'This is a read-only reviewer. Use tools only for inspection and diagnostics. Do not edit, stage, or commit files, and do not run commands that mutate the repository, worktree, or Beads.',
+    '',
+    body,
+  ].join('\n');
+
+  return [
+    '---',
+    `name: ${JSON.stringify(name)}`,
+    `description: ${JSON.stringify(description)}`,
+    'tools: read, grep, find, ls, bash',
+    'inheritProjectContext: true',
+    'inheritSkills: true',
+    'completionGuard: false',
+    '---',
+    '',
+    instructions,
+    '',
+  ].join('\n');
+}
+
 function setup() {
   let beadsInstallation;
   if (!flags.has('--skip-beads')) {
@@ -654,6 +694,20 @@ function setup() {
         }
         writeFileSync(dest, renderCodexAgent(join(agentsDir, file)));
         ok(name);
+      }
+    }
+
+    if (installPi) {
+      head('agents → .pi/agents/ (pi-subagents)');
+      mkdirSync(join(cwd, '.pi', 'agents'), { recursive: true });
+      for (const file of agentFiles) {
+        const dest = join(cwd, '.pi', 'agents', file);
+        if (existsSync(dest) && !force) {
+          skip(`${file} exists (use --force to overwrite)`);
+          continue;
+        }
+        writeFileSync(dest, renderPiAgent(join(agentsDir, file)));
+        ok(file.replace(/\.md$/, ''));
       }
     }
   }

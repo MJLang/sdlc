@@ -26,7 +26,7 @@ Copies of tickets and plans inside a worktree are snapshots. The canonical text 
 - Git for branches, commits, and worktrees. A remote is strongly recommended.
 - [Beads](https://github.com/gastownhall/beads) `>= 1.1.0` (`bd`) for issues, dependencies, atomic claims, gates, worktree safety, and recovery signals.
 - Node.js 18 or newer for setup, hashing, snapshots, guards, gates, context packets, and local review.
-- An agent that supports skills. sdlc is built for Claude Code and Codex, but you can install it anywhere supported by the skills CLI.
+- An agent that supports skills. sdlc is built for Claude Code, Codex, and Pi; Pi reviewer profiles require a subagent extension that discovers project `.pi/agents/` files.
 
 ## Install
 
@@ -35,6 +35,7 @@ Run setup inside your project and choose an agent target. If you omit the target
 ```bash
 npx @mlangroman/sdlc setup --claude
 npx @mlangroman/sdlc setup --codex
+npx @mlangroman/sdlc setup --pi
 ```
 
 Setup performs these seven tasks:
@@ -43,11 +44,11 @@ Setup performs these seven tasks:
 2. Creates `thoughts/{tickets,plans,designs,docs,reviews}/`, a compact workflow contract, a documentation index, and `CLAUDE.md -> AGENTS.md` symlinks.
 3. Creates a starter root `AGENTS.md`. An existing root instruction file is preserved unless you pass `--force`.
 4. Installs all ten skills in `.agents/skills/` and symlinks the same copies for Claude Code.
-5. Installs four read-only reviewer profiles for Claude Code, Codex, or both.
+5. Installs four read-only reviewer profiles for Claude Code, Codex, or Pi (Pi profiles use the project `.pi/agents/` convention supported by pi-subagents).
 6. Checks for Beads `>= 1.1.0` and the required capabilities, then initializes Beads if needed.
 7. Installs or updates `.beads/PRIME.md`, a small project prime that does not inject memory bodies.
 
-Available flags are `--claude` (the default), `--codex`, `--force`, `--skip-skills`, `--skip-agents`, and `--skip-beads`. Pass both agent flags to install support for Claude Code and Codex. `--skip-beads` only skips scaffolding; transitions backed by Beads will not run or report healthy without it.
+Available flags are `--claude` (the default), `--codex`, `--pi`, `--force`, `--skip-skills`, `--skip-agents`, and `--skip-beads`. Pass any combination of agent flags to install support for multiple hosts. Pi loads the shared `.agents/skills/` directory and the root `AGENTS.md`; enable project-agent discovery in your Pi subagent extension to use the installed `.pi/agents/` reviewers. `--skip-beads` only skips scaffolding; transitions backed by Beads will not run or report healthy without it.
 
 To install only the skills for another supported agent:
 
@@ -325,7 +326,7 @@ sdlc uses specific Beads features without asking Beads to act as another workflo
 | `frontend-code-reviewer` | Checks the UI and design system, WCAG, responsive behavior, performance, and plan conformance. |
 | `general-code-reviewer` | Provides a stack-neutral fallback for unmapped lanes. |
 
-All four agents are read-only. `setup --claude` installs Claude Code definitions. `setup --codex` renders the same bodies as sandboxed, read-only Codex profiles. Snapshot collection runs in the CLI, not in an agent. If a required reviewer is missing, the workflow stops.
+All four agents are read-only. `setup --claude` installs Claude Code definitions. `setup --codex` renders the same bodies as sandboxed, read-only Codex profiles. `setup --pi` renders Pi Markdown profiles in `.pi/agents/` for a project-agent-aware subagent extension such as pi-subagents; the profiles inherit the project instructions and skills. Snapshot collection runs in the CLI, not in an agent. If a required reviewer is missing, the workflow stops.
 
 ### Tagged project memory
 

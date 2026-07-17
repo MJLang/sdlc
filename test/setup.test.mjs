@@ -42,6 +42,26 @@ test('setup installs discovery workflow contracts in templates and skills', () =
   assert.match(installed, /Outcome: validated \| invalidated/);
 });
 
+test('setup --pi installs Pi reviewer profiles without selecting Claude by default', () => {
+  const root = gitRepository();
+  execFileSync(process.execPath, [cli, 'setup', '--skip-beads', '--pi'], { cwd: root, stdio: 'ignore' });
+
+  assert.equal(existsSync(join(root, '.claude')), false);
+  assert.equal(existsSync(join(root, '.codex')), false);
+  assert.equal(existsSync(join(root, '.agents', 'skills', 'implement', 'SKILL.md')), true);
+  const agents = readdirSync(join(root, '.pi', 'agents')).sort();
+  assert.deepEqual(agents, [
+    'backend-code-reviewer.md',
+    'frontend-code-reviewer.md',
+    'general-code-reviewer.md',
+    'plan-reviewer.md',
+  ]);
+  const reviewer = readFileSync(join(root, '.pi', 'agents', 'plan-reviewer.md'), 'utf8');
+  assert.match(reviewer, /^tools: read, grep, find, ls, bash$/m);
+  assert.match(reviewer, /^inheritProjectContext: true$/m);
+  assert.match(reviewer, /This is a read-only reviewer/);
+});
+
 test('setup installs an idempotent project prime whose fresh-session output contains no memory bodies', { skip: !installedBeads, timeout: 60_000 }, () => {
   const root = gitRepository();
   const actor = 'sdlc:test:setup-prime';

@@ -64,7 +64,7 @@ A normal setup then:
    available;
 5. installs all ten skills in `.agents/skills/` and links the Claude copies to
    that canonical installation;
-6. installs four read-only reviewer profiles for Claude, Codex, or both;
+6. installs four read-only reviewer profiles for Claude, Codex, Pi, or any combination;
 7. initializes Beads when needed; and
 8. installs the minimal `.beads/PRIME.md`.
 
@@ -77,6 +77,11 @@ is to enforce the current minimal-startup contract.
 Codex reviewer profiles are rendered from the same Markdown bodies used for
 Claude. The renderer adds a read-only sandbox declaration and keeps the profile
 body in one source of truth.
+
+Pi profiles use the same source bodies, rendered as project-local
+`.pi/agents/*.md` definitions for a Pi subagent extension that supports project
+agent discovery (such as pi-subagents). They inherit the root instructions and
+the shared `.agents/skills/` catalog.
 
 ## Project Configuration
 
@@ -580,6 +585,7 @@ thoughts/                   canonical intent, plans, research, reviews
 .claude/skills/             links to the canonical skills for Claude
 .claude/agents/             Claude reviewer profiles
 .codex/agents/              rendered read-only Codex reviewer profiles
+.pi/agents/                 Pi subagent reviewer profiles
 ```
 
 The gate-log temp fallback is outside this tree and includes a fingerprint of
