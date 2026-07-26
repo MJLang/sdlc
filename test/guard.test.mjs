@@ -45,6 +45,33 @@ test('plan accepts only ready_for_planning and prints exactly one stable success
   assert.equal(guardExitCode(refused), 3);
 });
 
+test('a refusal carries every diagnosis error, coded error first, deduplicated', () => {
+  const multi = diagnosis({
+    state: 'blocked',
+    errors: [
+      'Plan has 1 stale in-progress Beads issue corroborated by worktree inactivity.',
+      'Plan has 1 unresolved human escalation.',
+    ],
+  });
+  const refused = evaluateGuard('plan', multi);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.errors.length, 2);
+  assert.equal(refused.errors[0].code, 'wrong-state');
+  assert.equal(refused.errors[0].detail, multi.errors[0]);
+  assert.deepEqual(refused.errors[1], { code: 'context', detail: 'Plan has 1 unresolved human escalation.', recovery: 'sdlc doctor 001 --json' });
+
+  const single = diagnosis({ state: 'blocked', errors: ['Plan has 1 unresolved human escalation.'] });
+  const soleRefusal = evaluateGuard('plan', single);
+  assert.equal(soleRefusal.errors.length, 1);
+  assert.equal(soleRefusal.errors[0].code, 'wrong-state');
+
+  const partial = diagnosis({ state: 'blocked' });
+  delete partial.errors;
+  assert.doesNotThrow(() => evaluateGuard('plan', partial));
+  const noErrors = evaluateGuard('plan', partial);
+  assert.equal(noErrors.errors.length, 1);
+});
+
 test('approve detects first approval, amendment, no-op, and refuses an illegal mode', () => {
   const first = evaluateGuard('approve', diagnosis({ state: 'ready_for_approval', plan: { ...diagnosis().plan, status: 'review', approvedCommit: null } }));
   assert.equal(first.fields.mode, 'first-approval');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -174,16 +174,22 @@ function fakeBeadsRunner({
       status: childStatus,
       spec_id: 'thoughts/plans/023-f-export.md',
       metadata: { sdlc_ticket: 'thoughts/tickets/023-export.md', sdlc_plan: 'thoughts/plans/023-f-export.md', sdlc_step: '1' },
+      description: childDescription,
+      dependencies: childDependencies,
     }, ...(extraStep ? [{
       id: 'test-step-2',
       status: childStatus,
       spec_id: 'thoughts/plans/023-f-export.md',
       metadata: { sdlc_ticket: 'thoughts/tickets/023-export.md', sdlc_plan: 'thoughts/plans/023-f-export.md', sdlc_step: '2' },
+      description: 'Files: lib/audit.mjs',
+      dependencies: [],
     }] : []), ...(extraChild ? [{
       id: 'stray-child',
       status: 'open',
       spec_id: 'thoughts/plans/023-f-export.md',
       metadata: { sdlc_ticket: 'thoughts/tickets/023-export.md', sdlc_plan: 'thoughts/plans/023-f-export.md' },
+      description: 'Files: lib/stray.mjs',
+      dependencies: [],
     }] : [])]);
     if (key.includes('show stray-child')) return json({
       id: 'stray-child',
@@ -272,6 +278,8 @@ test('doctor reports a healthy reproducible approval with native mappings', () =
   assert.equal(result.state, 'healthy', JSON.stringify(result, null, 2));
   assert.equal(result.plan.approvedCommit, fixture.commit);
   assert.equal(result.beads.mappingValid, true);
+  assert.equal(result.workingTree.mode, 'branch');
+  assert.equal(result.worktree, null);
   assert.equal(doctorExitCode(result), 0);
 });
 
@@ -778,25 +786,153 @@ test('doctor blocks a native dependency cycle without invoking repair', () => {
   assert(result.errors.some((error) => error.includes('dependency graph contains 1 cycle')));
 });
 
-test('doctor escalates a stale claim only when worktree evidence corroborates it', () => {
-  const fixture = createRepository();
-  const staleRunner = (base) => overriddenRunner(base, (key) => {
+function staleRunner(base, staleData) {
+  return overriddenRunner(base, (key) => {
     if (!key.includes('stale')) return undefined;
-    return { status: 0, stdout: JSON.stringify([{ id: 'test-step', status: 'in_progress' }]), stderr: '' };
+    return { status: 0, stdout: JSON.stringify(staleData), stderr: '' };
   });
+}
 
-  const corroborated = inspectDoctor('023', { cwd: fixture.root, beadsRunner: staleRunner(fixture) });
-  assert.equal(corroborated.state, 'blocked', JSON.stringify(corroborated, null, 2));
-  assert(corroborated.errors.some((error) => error.includes('corroborated by worktree inactivity')));
-
-  const worktree = join(fixture.root, 'stale-worktree');
-  execFileSync('git', ['worktree', 'add', '-b', '023-f-export', worktree], { cwd: fixture.root, stdio: 'ignore' });
-  const active = inspectDoctor('023', {
+test('doctor treats a clean, fully pushed stale claim as a resumable warning rather than a block', () => {
+  const fixture = createRepository();
+  const result = inspectDoctor('023', {
     cwd: fixture.root,
-    beadsRunner: staleRunner({ ...fixture, worktreePath: worktree }),
+    beadsRunner: staleRunner(fixture, [{ id: 'test-step', status: 'in_progress' }]),
   });
-  assert.equal(active.state, 'healthy', JSON.stringify(active, null, 2));
-  assert(active.warnings.some((warning) => warning.includes('does not corroborate abandonment')));
+  assert.equal(result.state, 'healthy', JSON.stringify(result, null, 2));
+  assert(result.warnings.some((warning) => warning.includes('candidate stale') && warning.includes('sdlc resume 023')));
+  assert.equal(result.errors.some((error) => error.includes('stale')), false);
+});
+
+test('doctor blocks a stale claim when the working tree is dirty', () => {
+  const fixture = createRepository();
+  const worktree = join(fixture.root, 'stale-worktree-dirty');
+  execFileSync('git', ['worktree', 'add', '-b', '023-f-export', worktree], { cwd: fixture.root, stdio: 'ignore' });
+  writeFileSync(join(worktree, 'uncommitted.txt'), 'wip\n');
+  const result = inspectDoctor('023', {
+    cwd: fixture.root,
+    beadsRunner: staleRunner({ ...fixture, worktreePath: worktree }, [{ id: 'test-step', status: 'in_progress' }]),
+  });
+  assert.equal(result.state, 'blocked', JSON.stringify(result, null, 2));
+  assert(result.errors.some((error) => error.includes('stale') && error.includes('dirty')));
+});
+
+test('doctor blocks a stale claim when the working tree has unpushed commits', () => {
+  const fixture = createRepository();
+  const worktree = join(fixture.root, 'stale-worktree-unpushed');
+  execFileSync('git', ['worktree', 'add', '-b', '023-f-export', worktree], { cwd: fixture.root, stdio: 'ignore' });
+  writeFileSync(join(worktree, 'progress.txt'), 'wip\n');
+  execFileSync('git', ['add', 'progress.txt'], { cwd: worktree });
+  execFileSync('git', ['commit', '-m', 'wip: progress'], { cwd: worktree, stdio: 'ignore' });
+  const result = inspectDoctor('023', {
+    cwd: fixture.root,
+    beadsRunner: staleRunner({ ...fixture, worktreePath: worktree }, [{ id: 'test-step', status: 'in_progress' }]),
+  });
+  assert.equal(result.state, 'blocked', JSON.stringify(result, null, 2));
+  assert(result.errors.some((error) => error.includes('stale') && error.includes('unpushed commit')));
+});
+
+test('doctor excludes the plan epic itself from stale-claim evaluation', () => {
+  const fixture = createRepository();
+  const result = inspectDoctor('023', {
+    cwd: fixture.root,
+    beadsRunner: staleRunner(fixture, [{ id: 'test-epic', status: 'in_progress' }]),
+  });
+  assert.equal(result.state, 'healthy', JSON.stringify(result, null, 2));
+  assert.equal(result.warnings.some((warning) => warning.includes('candidate stale')), false);
+  assert.equal(result.errors.some((error) => error.includes('stale')), false);
+});
+
+test('doctor excludes a stale claim assigned to the current session actor', () => {
+  const fixture = createRepository();
+  const own = inspectDoctor('023', {
+    cwd: fixture.root,
+    actor: 'sdlc:test:mine',
+    beadsRunner: staleRunner(fixture, [{ id: 'test-step', status: 'in_progress', assignee: 'sdlc:test:mine' }]),
+  });
+  assert.equal(own.state, 'healthy', JSON.stringify(own, null, 2));
+  assert.equal(own.warnings.some((warning) => warning.includes('candidate stale')), false);
+
+  const foreign = inspectDoctor('023', {
+    cwd: fixture.root,
+    actor: 'sdlc:test:someone-else',
+    beadsRunner: staleRunner(fixture, [{ id: 'test-step', status: 'in_progress', assignee: 'sdlc:test:mine' }]),
+  });
+  assert(foreign.warnings.some((warning) => warning.includes('candidate stale')), JSON.stringify(foreign, null, 2));
+});
+
+test('doctor resolves a working tree and applies worktree-only checks only in worktree mode', () => {
+  const fixture = createRepository();
+  execFileSync('git', ['checkout', '-b', '023-f-export'], { cwd: fixture.root, stdio: 'ignore' });
+  const result = inspectDoctor('023', {
+    cwd: fixture.root,
+    beadsRunner: fakeBeadsRunner(fixture),
+  });
+  assert.equal(result.state, 'healthy', JSON.stringify(result, null, 2));
+  assert.equal(result.workingTree.mode, 'branch');
+  assert.equal(result.workingTree.onPlanBranch, true);
+  assert(result.worktree, 'expected a populated worktree projection for a plan branch checked out in the primary checkout');
+  assert.equal(result.worktree.path, realpathSync(fixture.root));
+  assert.equal(result.worktree.beadsState, null);
+  assert.equal(result.worktree.snapshotMatchesApprovedPlan, null);
+  assert.equal(result.worktree.snapshotSeverity, null);
+});
+
+test('a dirty primary checkout sitting on main is not reported as this plan working tree', () => {
+  const fixture = createRepository();
+  writeFileSync(join(fixture.root, 'untracked-scratch.txt'), 'work in progress\n');
+  const result = inspectDoctor('023', { cwd: fixture.root, beadsRunner: fakeBeadsRunner(fixture) });
+  assert.equal(result.workingTree.mode, 'branch');
+  assert.equal(result.workingTree.onPlanBranch, false);
+  assert.equal(result.worktree, null, 'a checkout on main is nobody\'s plan working tree');
+  assert.equal(result.warnings.some((warning) => /uncommitted changes/i.test(warning)), false, JSON.stringify(result.warnings));
+});
+
+test('doctor reads canonical ticket and plan text from main, not the branch working copy, in branch mode', () => {
+  const fixture = createRepository();
+  execFileSync('git', ['checkout', '-b', '023-f-export'], { cwd: fixture.root, stdio: 'ignore' });
+  writeFileSync(join(fixture.root, 'thoughts', 'plans', '023-f-export.md'), `${fixture.plan}\nEdited only on the branch, not landed to main.\n`);
+  writeFileSync(join(fixture.root, 'thoughts', 'tickets', '023-export.md'), `${fixture.ticket}\nEdited only on the branch, not landed to main.\n`);
+  const result = inspectDoctor('023', {
+    cwd: fixture.root,
+    beadsRunner: fakeBeadsRunner(fixture),
+  });
+  assert.equal(result.state, 'healthy', JSON.stringify(result, null, 2));
+  assert.equal(result.ticket.sha256, fixture.ticketHash);
+  assert.equal(result.plan.sha256, fixture.planHash);
+});
+
+test('doctor falls back to the working copy when a plan has not yet landed on main', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-doctor-branch-only-'));
+  execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'tests@example.invalid'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'SDLC Tests'], { cwd: root });
+  writeFileSync(join(root, 'README.md'), '# root\n');
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['checkout', '-b', '023-f-export'], { cwd: root, stdio: 'ignore' });
+  mkdirSync(join(root, 'thoughts', 'tickets'), { recursive: true });
+  mkdirSync(join(root, 'thoughts', 'plans'), { recursive: true });
+  writeFileSync(join(root, 'thoughts', 'AGENTS.md'), '# Workflow\n\n## Project Configuration\n\n- **Beads mode:** `embedded`\n- **Beads merge slot:** `off`\n');
+  const ticket = ticketSource();
+  const plan = planSource(fingerprintContent(ticket));
+  writeFileSync(join(root, 'thoughts', 'tickets', '023-export.md'), ticket);
+  writeFileSync(join(root, 'thoughts', 'plans', '023-f-export.md'), plan);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '-m', 'plan: draft export on branch only'], { cwd: root, stdio: 'ignore' });
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+  const result = inspectDoctor('023', {
+    cwd: root,
+    beadsRunner: fakeBeadsRunner({
+      commit,
+      ticketHash: fingerprintContent(ticket),
+      planHash: fingerprintContent(plan),
+    }),
+  });
+  assert.equal(result.errors.some((error) => error.includes('could not be read and fingerprinted')), false, JSON.stringify(result, null, 2));
+  assert.equal(result.ticket?.sha256, fingerprintContent(ticket));
+  assert.equal(result.plan?.sha256, fingerprintContent(plan));
 });
 
 test('doctor reports orphaned issue-referencing commits with recovery guidance and never auto-closes', () => {

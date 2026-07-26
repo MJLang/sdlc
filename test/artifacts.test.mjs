@@ -233,6 +233,27 @@ test('ticket acceptance bullets require allocated IDs and plan origin is canonic
   assert(identityMismatch.errors.some((error) => error.includes('Plan Target does not match ticket Target')));
 });
 
+test('plan Isolation frontmatter is optional, validated only when present, and defaults to branch', () => {
+  const ticket = parseTicket(ticketText());
+  const base = planText(fingerprintContent(ticketText()));
+
+  const absent = parsePlan(base, { ticket });
+  assert.equal(absent.isolation, 'branch');
+  assert.deepEqual(absent.errors, []);
+
+  const branch = parsePlan(base.replace('Beads Epic:', 'Beads Epic:\nIsolation: branch'), { ticket });
+  assert.equal(branch.isolation, 'branch');
+  assert.deepEqual(branch.errors, []);
+
+  const worktree = parsePlan(base.replace('Beads Epic:', 'Beads Epic:\nIsolation: worktree'), { ticket });
+  assert.equal(worktree.isolation, 'worktree');
+  assert.deepEqual(worktree.errors, []);
+
+  const invalid = parsePlan(base.replace('Beads Epic:', 'Beads Epic:\nIsolation: main'), { ticket });
+  assert(invalid.errors.includes('Plan has an invalid Isolation.'));
+  assert.equal(invalid.isolation, 'branch');
+});
+
 test('plan critique grammar preserves blockers and requires reasoned waivers', () => {
   const ticket = parseTicket(ticketText());
   const base = planText(fingerprintContent(ticketText()));

@@ -30,9 +30,11 @@
     "./fingerprint": "./lib/fingerprint.mjs",
     "./gates": "./lib/gates.mjs",
     "./guard": "./lib/guard.mjs",
+    "./resume": "./lib/resume.mjs",
     "./review-artifact": "./lib/review-artifact.mjs",
     "./review-packet": "./lib/review-packet.mjs",
-    "./snapshot": "./lib/snapshot.mjs"
+    "./snapshot": "./lib/snapshot.mjs",
+    "./working-tree": "./lib/working-tree.mjs"
   },
   "scripts": {
     "bump:minor": "node scripts/bump-version.mjs minor",

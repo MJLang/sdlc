@@ -102,6 +102,10 @@ Beads Epic:
 ---
 ```
 
+Add `Isolation: worktree` only when the plan needs its own worktree. The field is optional, its
+sole other legal value is `branch`, and omitting it means `branch` — work happens on branch
+`{NNN}-{type-initial}-{kebab-title}` in the primary checkout. Any other value is a plan error.
+
 The body must contain:
 
 - **Context** - ticket link, current code, and research-synthesis link when one exists;

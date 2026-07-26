@@ -35,20 +35,22 @@ Implement plan `$ARGUMENTS` under `thoughts/AGENTS.md`. Canonical ticket and pla
 
 All pipeline observations use `bd --readonly`, including reads by implementer/reviewer subagents. The parent owns issue/gate/note mutations unless a subagent is explicitly authorized under the inherited actor.
 
-## Worktree
+## Working tree
 
 Use the plan filename without `.md` for both branch and worktree name.
 
-1. Inspect `bd --readonly worktree list --json`. Create a missing worktree from current main only through:
+1. Default to **branch mode**: work on branch `<plan-name>` in the primary checkout, no worktree created. Switch to **worktree mode** only when the plan's `Isolation:` frontmatter is `worktree` or the invocation passes `--worktree`; the flag overrides at runtime with no plan amendment and no re-approval, since `branch → worktree` only adds isolation.
+2. Inspect `bd --readonly worktree list --json` regardless of mode. If a Beads-visible worktree for this plan already exists, resume it exactly as today: verify its branch, native shared-store state (`local` is the Beads 1.1 worktree-list value for a linked worktree; `shared`/`redirect` remain compatible), and ownership. Legacy worktrees may finish only when native discovery resolves them and safety checks pass.
+3. Absent an existing worktree: in branch mode, check out branch `<plan-name>` in the primary checkout; in worktree mode, create one from current main only through:
 
    ```bash
    BEADS_ACTOR="<session-actor>" bd worktree create .worktrees/<plan-name> --branch=<plan-name>
    ```
 
-   Never fall back to raw `git worktree add`. If a matching Beads-visible worktree exists, verify its branch, native shared-store state (`local` is the Beads 1.1 worktree-list value for a linked worktree; `shared`/`redirect` remain compatible), and ownership, then resume it. Legacy worktrees may finish only when native discovery resolves them and safety checks pass.
-2. If the resumed worktree is dirty, reconcile changes with the currently claimed step. Never reset, discard, or blindly commit user or crashed-session work.
-3. Publish a newly created branch with `git push -u origin <plan-name>` when a remote exists. Keep later completed steps pushed; report a no-remote repository explicitly.
-4. Retain the absolute canonical ticket path, canonical plan path, approved `plan-sha256`, and approved main commit from doctor. Give these values to every implementer and reviewer. Never read worktree `thoughts/tickets/` or `thoughts/plans/` as gate truth and never copy an amended plan into the worktree.
+   Never fall back to raw `git worktree add`.
+4. If the resumed or newly checked-out tree is dirty, reconcile changes with the currently claimed step. Never reset, discard, or blindly commit user or crashed-session work.
+5. Publish a newly created branch with `git push -u origin <plan-name>` when a remote exists. Keep later completed steps pushed; report a no-remote repository explicitly.
+6. Retain the absolute canonical ticket path, canonical plan path, approved `plan-sha256`, and approved main commit from doctor. Give these values to every implementer and reviewer. Never read the working tree's `thoughts/tickets/` or `thoughts/plans/` as gate truth and never copy an amended plan into it.
 
 ## Execution loop
 

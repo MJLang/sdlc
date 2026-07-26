@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   assertReadonlyBeadsCommand,
+  clearCapabilityCache,
   collectNativeDiagnostics,
   compareVersions,
   createBeadsAdapter,
@@ -176,6 +177,218 @@ test('older or capability-incomplete Beads installations are rejected precisely'
   assert.equal(result.coreCapabilitiesValid, false);
   assert(result.errors.some((error) => error.includes('older than required')));
   assert(result.errors.some((error) => error.includes('missing required capabilities')));
+});
+
+test('capability cache hits skip the --help spawns for the default runner', (t) => {
+  clearCapabilityCache();
+  const directory = mkdtempSync(join(tmpdir(), 'sdlc-beads-capcache-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const scriptPath = join(directory, 'fake-bd.mjs');
+  const logPath = join(directory, 'calls.log');
+  writeFileSync(scriptPath, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(logPath)}, args.join(' ') + '\\n');
+if (args.includes('--version')) process.stdout.write('bd version 9.9.9\\n');
+process.exit(0);
+`, { mode: 0o755 });
+  const callCount = () => readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length;
+
+  const first = inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.equal(callCount(), 13, 'the first call spawns one --version probe plus twelve --help probes');
+  assert.equal(first.available, true);
+
+  const second = inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.equal(callCount(), 14, 'a cache hit only re-runs the --version freshness check');
+  assert.deepEqual(second, first);
+  assert.notEqual(second, first);
+
+  first.available = false;
+  first.capabilities = null;
+  const third = inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.equal(third.available, true, 'mutating a returned result must not poison the cache');
+  assert.equal(callCount(), 15);
+
+  clearCapabilityCache();
+  inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.equal(callCount(), 28, 'clearCapabilityCache() forces a full re-probe (13 more spawns)');
+});
+
+test('an injected custom runner bypasses the capability cache in both directions', () => {
+  clearCapabilityCache();
+  const callsA = [];
+  const runnerA = (_executable, args) => {
+    callsA.push(args);
+    if (args.includes('--version')) return { status: 0, stdout: 'bd version 1.1.0', stderr: '' };
+    return { status: 0, stdout: 'help text from runner A', stderr: '' };
+  };
+  const first = inspectBeadsInstallation({ runner: runnerA, executable: 'bd' });
+  const spawnsPerCall = callsA.length;
+  assert.equal(spawnsPerCall, 13);
+
+  const second = inspectBeadsInstallation({ runner: runnerA, executable: 'bd' });
+  assert.equal(callsA.length, spawnsPerCall * 2, 'a custom runner must re-spawn every probe rather than reading a cache entry');
+  assert.deepEqual(second, first);
+
+  const callsB = [];
+  const runnerB = (_executable, args) => {
+    callsB.push(args);
+    if (args.includes('--version')) return { status: 0, stdout: 'bd version 1.0.0', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const resultB = inspectBeadsInstallation({ runner: runnerB, executable: 'bd' });
+  assert.equal(callsB.length, 13, 'a second injected runner is unaffected by anything the first runner touched');
+  assert.equal(resultB.version, '1.0.0');
+  assert.equal(first.version, '1.1.0');
+  assert.notDeepEqual(resultB, first);
+
+  const third = inspectBeadsInstallation({ runner: runnerA, executable: 'bd' });
+  assert.deepEqual(third, first, 'runner B must never write a cache entry that runner A could then read');
+});
+
+function writeCountingFakeBd(scriptPath, logPath) {
+  writeFileSync(scriptPath, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(logPath)}, args.join(' ') + '\\n');
+if (args.includes('--version')) process.stdout.write('bd version 9.9.9\\n');
+process.exit(0);
+`, { mode: 0o755 });
+}
+
+function runProbeInSubprocess({ scriptPath, cwd }) {
+  const beadsModuleUrl = pathToFileURL(join(packageRoot, 'lib', 'beads.mjs')).href;
+  const stdout = execFileSync(process.execPath, ['-e', `
+    import(${JSON.stringify(beadsModuleUrl)}).then(({ inspectBeadsInstallation }) => {
+      const result = inspectBeadsInstallation({ executable: ${JSON.stringify(scriptPath)}, cwd: ${JSON.stringify(cwd)} });
+      process.stdout.write(JSON.stringify(result));
+    });
+  `], { encoding: 'utf8' });
+  return JSON.parse(stdout);
+}
+
+test('the on-disk capability cache serves a cache hit to a second process', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'sdlc-beads-diskcache-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-b', 'main'], { cwd: directory, stdio: 'ignore' });
+  const scriptPath = join(directory, 'fake-bd.mjs');
+  const logPath = join(directory, 'calls.log');
+  writeCountingFakeBd(scriptPath, logPath);
+  const callCount = () => readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length;
+
+  const first = runProbeInSubprocess({ scriptPath, cwd: directory });
+  assert.equal(callCount(), 13, 'the first process spawns a full probe');
+  assert.equal(first.available, true);
+
+  const second = runProbeInSubprocess({ scriptPath, cwd: directory });
+  assert.equal(callCount(), 14, 'a second process hits the on-disk cache and only re-runs the --version freshness check');
+  assert.deepEqual(second, first);
+
+  const cacheDirectory = join(directory, '.git', 'sdlc', 'capabilities');
+  const entries = readdirSync(cacheDirectory);
+  assert.equal(entries.length, 1, 'exactly one capability cache file was written');
+  assert.match(entries[0], /^[0-9a-f]{64}\.json$/);
+});
+
+test('a corrupt on-disk capability cache file is treated as a miss', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'sdlc-beads-diskcache-corrupt-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-b', 'main'], { cwd: directory, stdio: 'ignore' });
+  const scriptPath = join(directory, 'fake-bd.mjs');
+  const logPath = join(directory, 'calls.log');
+  writeCountingFakeBd(scriptPath, logPath);
+  const callCount = () => readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length;
+
+  // Populate the disk cache from a subprocess so this process's in-memory L1
+  // stays empty for this key — the call below can only be served from disk.
+  runProbeInSubprocess({ scriptPath, cwd: directory });
+  assert.equal(callCount(), 13);
+
+  const cacheDirectory = join(directory, '.git', 'sdlc', 'capabilities');
+  const [fileName] = readdirSync(cacheDirectory);
+  writeFileSync(join(cacheDirectory, fileName), '{ this is not valid json');
+
+  const result = inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.equal(result.available, true);
+  assert.equal(callCount(), 26, 'a corrupt cache entry is a miss, forcing a fresh 13-spawn probe rather than throwing');
+});
+
+test('an on-disk capability cache file whose stored key no longer matches is treated as a miss', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'sdlc-beads-diskcache-keymismatch-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-b', 'main'], { cwd: directory, stdio: 'ignore' });
+  const scriptPath = join(directory, 'fake-bd.mjs');
+  const logPath = join(directory, 'calls.log');
+  writeCountingFakeBd(scriptPath, logPath);
+  const callCount = () => readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length;
+
+  runProbeInSubprocess({ scriptPath, cwd: directory });
+  assert.equal(callCount(), 13);
+
+  const cacheDirectory = join(directory, '.git', 'sdlc', 'capabilities');
+  const [fileName] = readdirSync(cacheDirectory);
+  const cachePath = join(cacheDirectory, fileName);
+  const record = JSON.parse(readFileSync(cachePath, 'utf8'));
+  writeFileSync(cachePath, JSON.stringify({ ...record, key: 'stale-key-from-a-different-binary' }));
+
+  const result = inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.equal(result.available, true);
+  assert.equal(callCount(), 26, 'a stale key inside the cache file is a miss, forcing a fresh 13-spawn probe rather than trusting a hash collision');
+});
+
+test('outside a Git worktree the capability cache falls back to memory-only with no disk cache', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'sdlc-beads-diskcache-noworktree-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  // Deliberately not a Git repository.
+  const scriptPath = join(directory, 'fake-bd.mjs');
+  const logPath = join(directory, 'calls.log');
+  writeCountingFakeBd(scriptPath, logPath);
+  const callCount = () => readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length;
+
+  const first = runProbeInSubprocess({ scriptPath, cwd: directory });
+  assert.equal(callCount(), 13);
+  assert.equal(first.available, true);
+
+  const second = runProbeInSubprocess({ scriptPath, cwd: directory });
+  assert.equal(callCount(), 26, 'a second process gets no cross-process cache outside a Git worktree, so it fully re-probes');
+  assert.deepEqual(second, first);
+
+  assert.deepEqual(readdirSync(directory).sort(), ['calls.log', 'fake-bd.mjs'], 'no cache directory was created anywhere under cwd');
+});
+
+test('clearCapabilityCache removes the on-disk entry, not just the in-memory one', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'sdlc-beads-diskcache-clear-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-b', 'main'], { cwd: directory, stdio: 'ignore' });
+  const scriptPath = join(directory, 'fake-bd.mjs');
+  const logPath = join(directory, 'calls.log');
+  writeCountingFakeBd(scriptPath, logPath);
+  const cacheDirectory = join(directory, '.git', 'sdlc', 'capabilities');
+  const cacheFiles = () => (existsSync(cacheDirectory) ? readdirSync(cacheDirectory) : []);
+
+  inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.equal(cacheFiles().length, 1, 'the first probe writes exactly one on-disk entry');
+
+  clearCapabilityCache();
+  assert.deepEqual(cacheFiles(), [], 'clearing must reach the disk layer, or the next process still gets a stale hit');
+
+  inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.equal(readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length, 26, 'the post-clear call fully re-probes rather than reading a surviving disk entry');
+});
+
+test('a mutated result cannot poison a later cache hit through a shared nested object', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'sdlc-beads-capcache-isolation-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const scriptPath = join(directory, 'fake-bd.mjs');
+  writeCountingFakeBd(scriptPath, join(directory, 'calls.log'));
+
+  const first = inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  first.capabilities.readonly = 'tampered';
+  first.errors.push('tampered');
+
+  const second = inspectBeadsInstallation({ executable: scriptPath, cwd: directory });
+  assert.notEqual(second.capabilities.readonly, 'tampered', 'nested capability state must not be shared with the cache');
+  assert.equal(second.errors.includes('tampered'), false, 'the cached errors array must not be shared with a returned result');
 });
 
 test('atomic claims isolate actors in a temporary Beads repository', { skip: !realBeads.coreCapabilitiesValid, timeout: 60_000 }, (t) => {

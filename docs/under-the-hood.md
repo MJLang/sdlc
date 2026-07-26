@@ -565,6 +565,7 @@ provides subpath exports.
 | `doctor.mjs` | Full artifact/Beads/Git/review diagnosis | `sdlc doctor` |
 | `snapshot.mjs` | Deterministic `/sdlc-next` and `/sdlc-queue` projection | `sdlc snapshot` |
 | `guard.mjs` | Stage acceptance matrices | `sdlc guard` |
+| `resume.mjs` | Precondition checks and claim adoption for an abandoned plan epic | `sdlc resume` |
 | `gates.mjs` | Ordered execution, bounded output, protected logs | `sdlc gates` |
 | `review-packet.mjs` | Step and reviewer context packets | `sdlc review-packet` plus library API |
 | `review-artifact.mjs` | Review grammar and convergence | Used by doctor and review skills |

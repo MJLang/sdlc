@@ -6,19 +6,20 @@
  *   npx @mlangroman/sdlc setup [--claude|--codex|--pi] [--force] [--skip-skills] [--skip-beads]
  */
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, relative } from 'node:path';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import net from 'node:net';
 import { createSessionActor, inspectBeadsInstallation, repositorySessionActor } from '../lib/beads.mjs';
 import { readProjectConfig } from '../lib/config.mjs';
-import { doctorExitCode, formatDoctor, inspectDoctor } from '../lib/doctor.mjs';
-import { fingerprintFile, formatFingerprint } from '../lib/fingerprint.mjs';
+import { doctorExitCode, formatDoctor, inspectDoctor, resolvePrimaryCheckout } from '../lib/doctor.mjs';
+import { fingerprintContent, fingerprintFile, formatFingerprint } from '../lib/fingerprint.mjs';
 import { formatGateRun, gateExitCode, runGates } from '../lib/gates.mjs';
 import { formatGuard, guardExitCode, inspectGuard } from '../lib/guard.mjs';
 import { parseReviewArtifact } from '../lib/review-artifact.mjs';
 import { createReviewPackets, formatReviewPacket } from '../lib/review-packet.mjs';
+import { formatResume, resumeExitCode, runResume } from '../lib/resume.mjs';
 import { inspectSnapshot } from '../lib/snapshot.mjs';
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,10 +65,11 @@ ${c('1', '@mlangroman/sdlc')} — ticket → plan → implement → land pipelin
 Usage:
   npx @mlangroman/sdlc setup [options]     Set up the pipeline in the current directory
   sdlc actor [runtime] [--new]              Print a session-scoped Beads actor
-  sdlc hash <file>                          Print the canonical full-file SHA-256
+  sdlc hash <file> [--rev <commit>]         Print the canonical full-file SHA-256
   sdlc doctor <NNN> [--json]                Validate pipeline and native Beads integrity
   sdlc snapshot --view=next|queue --json    Collect one deterministic read-only pipeline snapshot
   sdlc guard <stage> <NNN>                  Validate one stage and print a terse result
+  sdlc resume <NNN> [--runtime <name>]      Adopt an abandoned plan epic under a fresh actor
   sdlc gates [--cwd <dir>] [--target <t>]   Run configured quality gates with bounded output
   sdlc review-packet <NNN> [options]         Build deterministic lane-scoped reviewer context
   sdlc review <NNN> [options]               Prepare a plan worktree for local human review
@@ -218,14 +220,41 @@ function actor() {
 }
 
 function hash() {
-  const path = positionalAfter('hash');
+  const path = positionalAfter('hash', { skipOptionValues: new Set(['--rev']) });
+  const rev = optionValue('--rev');
   if (!path) {
-    console.error('Usage: sdlc hash <file>');
+    console.error('Usage: sdlc hash <file> [--rev <commit>]');
     process.exitCode = 1;
     return;
   }
   try {
-    console.log(formatFingerprint(fingerprintFile(path)));
+    if (!rev) {
+      console.log(formatFingerprint(fingerprintFile(path)));
+      return;
+    }
+    const primary = resolvePrimaryCheckout(cwd);
+    const requestedPath = resolve(cwd, path);
+    let absolutePath = requestedPath;
+    try {
+      absolutePath = realpathSync(requestedPath);
+    } catch {
+      // The path may not exist in the working tree (for example, deleted since
+      // <rev>); fall back to the resolved literal so a historical read can still succeed.
+    }
+    const relativePath = relative(primary, absolutePath).split(sep).join('/');
+    const commit = git(['-C', primary, 'rev-parse', '--verify', `${rev}^{commit}`]);
+    if (!commit) {
+      console.error(`Could not hash ${path}: revision '${rev}' does not resolve to a commit.`);
+      process.exitCode = 1;
+      return;
+    }
+    const result = spawnSync('git', ['show', `${commit}:${relativePath}`], { cwd: primary, maxBuffer: 16 * 1024 * 1024 });
+    if (result.error || result.status !== 0) {
+      console.error(`Could not hash ${path}: no such path '${relativePath}' at ${rev} (${commit}).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(formatFingerprint(fingerprintContent(result.stdout)));
   } catch (error) {
     console.error(`Could not hash ${path}: ${error.message}`);
     process.exitCode = 1;
@@ -280,6 +309,23 @@ function guard() {
     process.exitCode = guardExitCode(result);
   } catch (error) {
     console.error(`Guard failed: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+function resume() {
+  const number = positionalAfter('resume', { skipOptionValues: new Set(['--runtime']) });
+  if (!number || !/^\d+$/.test(number)) {
+    console.error('Usage: sdlc resume <NNN> [--runtime <name>] [--json]');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const result = runResume(number, { cwd, runtime: optionValue('--runtime') || process.env.SDLC_RUNTIME || 'agent' });
+    console.log(flags.has('--json') ? JSON.stringify(result, null, 2) : formatResume(result));
+    process.exitCode = resumeExitCode(result);
+  } catch (error) {
+    console.error(`Resume failed: ${error.message}`);
     process.exitCode = 1;
   }
 }
@@ -759,6 +805,7 @@ else if (command === 'hash') hash();
 else if (command === 'doctor') doctor();
 else if (command === 'snapshot') snapshot();
 else if (command === 'guard') guard();
+else if (command === 'resume') resume();
 else if (command === 'gates') await gates();
 else if (command === 'review-packet') reviewPacket();
 else if (command === 'review') await review();

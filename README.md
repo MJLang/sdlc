@@ -2,7 +2,7 @@
 
 Turn a ticket into reviewed, merged code without giving an agent control of the gates.
 
-sdlc packages an agent-driven software development workflow as [agent skills](https://skills.sh). It uses Beads for coordination, gives each plan its own Git worktree, and saves the evidence from every review. A person must approve each irreversible step.
+sdlc packages an agent-driven software development workflow as [agent skills](https://skills.sh). It uses Beads for coordination, gives each plan its own branch — or its own Git worktree when the plan asks for one — and saves the evidence from every review. A person must approve each irreversible step.
 
 Tickets and plans are Markdown files you can inspect and edit. Approvals are tied to committed content hashes, reviews are saved as artifacts, and the current execution state is available through the CLI.
 
@@ -16,10 +16,10 @@ The workflow keeps each kind of information in one place:
 |---|---|
 | `thoughts/` on `main` | The canonical ticket, plan, and research text, committed when the plan is approved |
 | [Beads](https://github.com/gastownhall/beads) | Live issues, dependencies, claims, gates, and notes |
-| One Git worktree per plan | Code changes and saved review artifacts |
+| One branch per plan, optionally its own worktree | Code changes and saved review artifacts |
 | Epic approval notes | The hash chain that connects approved artifacts to a commit on `main` |
 
-Copies of tickets and plans inside a worktree are snapshots. The canonical text always comes from `main`. `/sdlc-next` performs one valid transition at a time and stops at every human gate.
+Copies of tickets and plans inside a working tree are snapshots. The canonical text always comes from `main`. `/sdlc-next` performs one valid transition at a time and stops at every human gate.
 
 ## Requirements
 
@@ -127,7 +127,7 @@ Approval creates a Beads epic and its dependent step issues. It commits the tick
 /sdlc-implement 024
 ```
 
-Implementation first runs the compact `implement` guard. It claims the epic with an identity unique to the current session, creates a Beads-managed worktree, and works through dependency-ordered step packets. Each step returns a fixed handoff, runs `sdlc gates`, and commits and pushes before its issue closes.
+Implementation first runs the compact `implement` guard. It claims the epic with an identity unique to the current session, checks out the plan branch in the primary checkout — or creates a Beads-managed worktree when the plan declares `Isolation: worktree` — and works through dependency-ordered step packets. Each step returns a fixed handoff, runs `sdlc gates`, and commits and pushes before its issue closes.
 
 When the steps are done, sdlc builds review packets for each lane and includes a complete list of changed files. Blocking questions become Beads gates for a person to resolve. `/sdlc-implement` never merges the work.
 
@@ -173,7 +173,7 @@ Use `Type: discovery` for feasibility spikes, compatibility studies, performance
 - Frontmatter records gates; Beads records current activity. Artifacts do not have an `in progress` status.
 - Ticket and plan text on `main` is canonical. Worktree copies are snapshots, and implementers and reviewers receive absolute canonical paths plus the approved plan hash.
 - `/sdlc-approve` commits the gate artifacts and appends their normalized hashes, along with a reachable `main` commit, to the epic.
-- Every plan uses a separate worktree. Each step is pushed before its issue closes, so a crashed session does not strand unpushed work.
+- Every plan uses a separate branch, and its own worktree when it declares `Isolation: worktree`. Each step is pushed before its issue closes, so a crashed session does not strand unpushed work.
 - A saved aggregate review binds the exact code SHA to the approved plan. `/sdlc-land` rejects review evidence after it becomes stale.
 - Implementation stages memory candidates. `/sdlc-land` promotes only facts that remain true in the merged result.
 
@@ -181,14 +181,18 @@ The full generated project contract is in [`template/thoughts/AGENTS.md`](templa
 
 ## CLI reference
 
-### `sdlc hash <file>`
+### `sdlc hash <file> [--rev <commit>]`
 
 ```bash
 sdlc hash thoughts/plans/024-f-csv-export.md
 # sha256=<hex>
+sdlc hash thoughts/plans/024-f-csv-export.md --rev a1b2c3d
+# sha256=<hex of the blob at that commit>
 ```
 
 Every skill and check uses the same hash function. It reads the full file as UTF-8, including frontmatter; converts CRLF and lone CR line endings to LF; and hashes the content with exactly one final newline. The output is lowercase hexadecimal. Shell variants of `shasum` are not part of this contract.
+
+Add `--rev <commit>` to hash the canonical text at a specific commit instead of the working copy, so an implementer and a reviewer can prove they read identical bytes at the approved commit. `<file>` may be given absolute or relative to the current directory; it is resolved against the repository root before the read. The command fails clearly and distinctly when the revision does not resolve to a commit versus when the path does not exist at that revision.
 
 ### `sdlc doctor <NNN> [--json]`
 
@@ -221,6 +225,12 @@ Beads 1.1 in embedded mode does not implement JSON output for `bd doctor`. In th
 ### `sdlc guard <stage> <NNN>`
 
 Valid stages are `plan`, `approve`, `implement`, `review`, and `land`. An accepted guard prints one `OK` line. That line contains only the caller's identity and state fields plus stable warning codes. A refusal prints coded errors and a recovery command while preserving the doctor exit meanings: `2` for drift or legacy data, `3` for a blocker, and `1` for invalid input or an unavailable dependency. Use `sdlc doctor --json` for the full diagnosis.
+
+### `sdlc resume <NNN> [--runtime <name>] [--json]`
+
+Every session mints a fresh Beads actor, so a plan an earlier session was implementing always looks like a foreign or stale claim to the next one. `resume` mints a new actor, adopts the plan epic under it, resets any orphaned `in_progress` child claims to `open`, and appends exactly one audit note to the epic recording who it adopted from. It requires a clean worktree, nothing unpushed, and no merge slot held by another actor; a refusal reports every failing precondition at once, with the specific dirty paths, unpushed commits, or merge-slot holder, never a bare refusal.
+
+`resume` deliberately does not resolve gates, clear `human` escalations, close or reopen issues, touch the merge slot, or touch Git. It only adopts claims — recovering a gated or escalated plan is still a human decision.
 
 ### `sdlc gates [--cwd <worktree>] [--target <target>]`
 
