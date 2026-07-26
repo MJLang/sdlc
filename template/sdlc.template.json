@@ -1,0 +1,57 @@
+{
+  "$schema": "./sdlc.schema.json",
+  "version": 1,
+  "targets": [
+    {
+      "name": "app",
+      "paths": [
+        "src/**",
+        "test/**"
+      ],
+      "gates": [
+        "npm run test:app"
+      ],
+      "reviewers": [
+        "backend-code-reviewer"
+      ]
+    }
+  ],
+  "gates": [
+    "npm test"
+  ],
+  "reviewers": [
+    "backend-code-reviewer"
+  ],
+  "productDocs": "thoughts/docs/",
+  "frontendConstraints": "none",
+  "beads": {
+    "mode": "embedded",
+    "mergeSlot": "off"
+  },
+  "local": {
+    "reviewEditor": "code {worktree}",
+    "preview": {
+      "command": "npm run dev -- --port {port}",
+      "url": "http://localhost:{port}"
+    }
+  },
+  "models": {
+    "defaults": {
+      "tier": "balanced",
+      "effort": "medium"
+    },
+    "roles": {
+      "plan-reviewer": {
+        "tier": "frontier",
+        "effort": "high"
+      }
+    },
+    "tiers": {
+      "claude": {
+        "frontier": "inherit",
+        "balanced": "sonnet",
+        "cheap": "haiku"
+      }
+    }
+  }
+}

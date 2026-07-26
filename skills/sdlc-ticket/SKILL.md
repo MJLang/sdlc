@@ -1,6 +1,6 @@
 ---
 name: sdlc-ticket
-version: 0.5.1
+version: 0.6.0
 description: Create a new work ticket in thoughts/tickets from an idea. Use when the user describes a feature, bug, refactor, chore, or discovery that should enter the ticket-to-plan-to-implement pipeline.
 argument-hint: <one-line idea or description>
 disable-model-invocation: true
@@ -11,10 +11,10 @@ Create the intent artifact for `$ARGUMENTS` under the pipeline in `thoughts/AGEN
 ## Procedure
 
 1. Allocate `{NNN}` as one more than the highest number used by any file in `thoughts/tickets/` or `thoughts/plans/`, zero-padded to three digits.
-2. Infer:
+2. Run `sdlc config --field targets` once. Infer:
    - `Type: feature | bug | refactor | chore | discovery`.
    - Use `discovery` when the outcome tests feasibility, compatibility, limits, performance, or an architectural assumption. Its ACs state the question/hypothesis, observable experiments, decision thresholds, retained evidence, and required disposition after either result.
-   - a configured Project Configuration target;
+   - `Target`: the `name` of one object in the returned array;
    - 2-5 stable lowercase retrieval tags, starting with the target and followed by useful domain or technology terms.
 
    Search `thoughts/docs/INDEX.md` first. Load the product overview plus rows whose target/tags match the idea, and expand to another document only when the indexed evidence remains ambiguous. Ask when target or tags are materially ambiguous; in an unattended caller, make the safest reasonable choice and record the assumption under Open Questions.

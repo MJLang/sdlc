@@ -80,6 +80,15 @@ Pass 1 Verdict: APPROVED
 `;
 }
 
+function writeConfig(root, { mode = 'embedded', mergeSlot = 'off' } = {}) {
+  mkdirSync(join(root, '.agents'), { recursive: true });
+  writeFileSync(join(root, '.agents', 'sdlc.json'), JSON.stringify({
+    version: 1,
+    targets: [],
+    beads: { mode, mergeSlot },
+  }));
+}
+
 function createRepository({ planStatus = 'approved', extraStep = false, mergeSlot = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'sdlc-doctor-'));
   execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
@@ -87,7 +96,7 @@ function createRepository({ planStatus = 'approved', extraStep = false, mergeSlo
   execFileSync('git', ['config', 'user.name', 'SDLC Tests'], { cwd: root });
   mkdirSync(join(root, 'thoughts', 'tickets'), { recursive: true });
   mkdirSync(join(root, 'thoughts', 'plans'), { recursive: true });
-  writeFileSync(join(root, 'thoughts', 'AGENTS.md'), `# Workflow\n\n## Project Configuration\n\n- **Beads mode:** \`embedded\`\n- **Beads merge slot:** \`${mergeSlot ? 'on' : 'off'}\`\n`);
+  writeConfig(root, { mergeSlot: mergeSlot ? 'on' : 'off' });
   const ticket = ticketSource();
   const plan = planSource(fingerprintContent(ticket), { status: planStatus, epic: planStatus === 'review' ? '' : 'test-epic', extraStep });
   writeFileSync(join(root, 'thoughts', 'tickets', '023-export.md'), ticket);
@@ -422,7 +431,7 @@ test('doctor validates a real embedded Beads approval fixture', { skip: !install
   execFileSync('bd', ['init', '--non-interactive', '--skip-hooks', '--skip-agents', '--prefix', 'sdlctest'], { cwd: root, env: environment, stdio: 'ignore' });
   mkdirSync(join(root, 'thoughts', 'tickets'), { recursive: true });
   mkdirSync(join(root, 'thoughts', 'plans'), { recursive: true });
-  writeFileSync(join(root, 'thoughts', 'AGENTS.md'), '# Workflow\n\n## Project Configuration\n\n- **Beads mode:** `embedded`\n- **Beads merge slot:** `off`\n');
+  writeConfig(root);
   const ticket = ticketSource();
   const ticketPath = 'thoughts/tickets/023-export.md';
   const planPath = 'thoughts/plans/023-f-export.md';
@@ -500,7 +509,7 @@ test('doctor blocks Beads epic children without exact step identity', () => {
 
 test('doctor projects empty server health responses as invalid', () => {
   const fixture = createRepository();
-  writeFileSync(join(fixture.root, 'thoughts', 'AGENTS.md'), '# Workflow\n\n## Project Configuration\n\n- **Beads mode:** `server`\n- **Beads merge slot:** `off`\n');
+  writeConfig(fixture.root, { mode: 'server' });
   const fallback = fakeBeadsRunner(fixture);
   const runner = (executable, args) => {
     const key = args.join(' ');
@@ -528,14 +537,71 @@ test('doctor blocks invalid UTF-8 artifacts instead of throwing', () => {
 
 test('doctor rejects invalid native coordination configuration values', () => {
   const fixture = createRepository();
-  writeFileSync(join(fixture.root, 'thoughts', 'AGENTS.md'), '# Workflow\n\n- **Beads mode:** `sometimes`\n- **Beads merge slot:** `maybe`\n');
+  writeConfig(fixture.root, { mode: 'sometimes', mergeSlot: 'maybe' });
   const result = inspectDoctor('023', {
     cwd: fixture.root,
     beadsRunner: fakeBeadsRunner(fixture),
   });
   assert.equal(result.state, 'blocked');
-  assert(result.errors.some((error) => error.includes('invalid Beads mode')));
-  assert(result.errors.some((error) => error.includes('invalid Beads merge slot')));
+  assert(result.errors.some((error) => error.includes('beads.mode') && error.includes('is not one of embedded|server')));
+  assert(result.errors.some((error) => error.includes('beads.mergeSlot') && error.includes('is not one of off|on')));
+});
+
+// Plan 002 Step 2 empirical premise check: the plan's Current-State Findings
+// claimed config errors reached `doctor.errors` but never `doctor.state`, so
+// an invalid configuration reported `healthy`. That claim does not hold
+// against this codebase: `createDoctorInspectionContext` seeds `errors` from
+// `config.errors`, and `state` is `invariantErrors ? 'blocked' : artifactState.state`
+// - a config error alone already forces `blocked`, independent of ticket/plan
+// health. What genuinely needed fixing (below) was ordering: config errors
+// were pushed after ticket/plan errors, so they did not lead `result.errors`.
+test('empirical: an invalid config alone already blocks doctor state, with no ticket/plan involved', () => {
+  const fixture = createRepository();
+  writeConfig(fixture.root, { mode: 'sometimes' });
+  const result = inspectDoctor('999', {
+    cwd: fixture.root,
+    beadsRunner: fakeBeadsRunner(fixture),
+  });
+  assert.equal(result.state, 'blocked');
+  assert.match(result.errors[0], /beads\.mode "sometimes" is not one of embedded\|server/);
+  assert(result.errors.some((error) => error.includes('Expected exactly one ticket for 999')));
+  assert(
+    result.errors.indexOf(result.errors.find((error) => error.includes('beads.mode')))
+      < result.errors.indexOf(result.errors.find((error) => error.includes('Expected exactly one ticket'))),
+    'config errors must lead ticket/plan errors',
+  );
+});
+
+test('a legacy "## Project Configuration" section blocks doctor, with the legacy error leading', () => {
+  const fixture = createRepository();
+  writeFileSync(join(fixture.root, 'thoughts', 'AGENTS.md'), '## Project Configuration\n\n- **Targets:** `app`\n');
+  const result = inspectDoctor('023', {
+    cwd: fixture.root,
+    beadsRunner: fakeBeadsRunner(fixture),
+  });
+  assert.equal(result.state, 'blocked');
+  assert.match(result.errors[0], /legacy "## Project Configuration"/);
+});
+
+test('inspectDoctor carries an enumerable config projection with no second read; the existing inspection stays non-enumerable', () => {
+  const fixture = createRepository();
+  const result = inspectDoctor('023', { cwd: fixture.root, beadsRunner: fakeBeadsRunner(fixture) });
+  const roundTripped = JSON.parse(JSON.stringify(result));
+  assert.equal('config' in roundTripped, true);
+  assert.equal(roundTripped.config.beadsMode, 'embedded');
+  assert.equal(roundTripped.config.path, '.agents/sdlc.json');
+  assert.deepEqual(roundTripped.config.errors, []);
+  assert.equal('inspection' in roundTripped, false, 'inspection must stay non-enumerable');
+  assert.equal(JSON.stringify(result).includes('"inspection"'), false);
+});
+
+test('the dependency-unavailable branch (no resolvable git repository) still carries a stable config key', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-doctor-nogit-'));
+  const result = inspectDoctor('001', { cwd: root });
+  assert.equal(result.dependencyUnavailable, true);
+  assert.equal(result.primaryCheckout, undefined);
+  assert.deepEqual(result.config.errors, []);
+  assert.equal(result.config.beadsMode, 'embedded');
 });
 
 test('doctor leaves amendment mapping deltas for approve instead of deadlocking reapproval', () => {
@@ -913,7 +979,7 @@ test('doctor falls back to the working copy when a plan has not yet landed on ma
   execFileSync('git', ['checkout', '-b', '023-f-export'], { cwd: root, stdio: 'ignore' });
   mkdirSync(join(root, 'thoughts', 'tickets'), { recursive: true });
   mkdirSync(join(root, 'thoughts', 'plans'), { recursive: true });
-  writeFileSync(join(root, 'thoughts', 'AGENTS.md'), '# Workflow\n\n## Project Configuration\n\n- **Beads mode:** `embedded`\n- **Beads merge slot:** `off`\n');
+  writeConfig(root);
   const ticket = ticketSource();
   const plan = planSource(fingerprintContent(ticket));
   writeFileSync(join(root, 'thoughts', 'tickets', '023-export.md'), ticket);

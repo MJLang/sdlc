@@ -1,6 +1,6 @@
 ---
 name: sdlc-chore
-version: 0.5.1
+version: 0.6.0
 description: Human-gated lightweight lane that takes one small low-risk change through an AC-tagged ticket, native Beads ownership/worktree, structured review, merge, and post-merge memory audit without a plan or epic.
 argument-hint: <short description of the small change>
 disable-model-invocation: true
@@ -20,8 +20,12 @@ If implementation outgrows the boundary, stop without merging, keep the ticket/w
 
 ## Session and resumability
 
-1. Before allocating, look for exactly one existing `Type: chore` ticket marked `Chore lane - no plan` whose normalized title matches this request and whose Bead/worktree or incomplete local merge closeout remains. Resume unimplemented work by stable ticket path and Bead ID. If the ticket is already `implemented`, resume only when one matching local merge commit exists and memory, close/push, cleanup, or slot-release work is demonstrably incomplete; continue after that commit and never merge again. Ambiguous matches require a human choice.
-2. Set one unique root actor before the first Beads mutation:
+1. Run `sdlc config --json` once. Record `mergeSlotEnabled` (the resolved
+   `beads.mergeSlot`) for **Merge and post-merge memory** below. (The same
+   payload also reports `models`; that key is reserved policy the pipeline
+   does not consume yet.)
+2. Before allocating, look for exactly one existing `Type: chore` ticket marked `Chore lane - no plan` whose normalized title matches this request and whose Bead/worktree or incomplete local merge closeout remains. Resume unimplemented work by stable ticket path and Bead ID. If the ticket is already `implemented`, resume only when one matching local merge commit exists and memory, close/push, cleanup, or slot-release work is demonstrably incomplete; continue after that commit and never merge again. Ambiguous matches require a human choice.
+3. Set one unique root actor before the first Beads mutation:
 
    ```bash
    sdlc actor <runtime> --new
@@ -31,13 +35,13 @@ If implementation outgrows the boundary, stop without merging, keep the ticket/w
    contract actor invariant, prefix every mutation with
    `BEADS_ACTOR="<session-actor>"`; never rely on shell export or an older actor.
 
-3. Require Beads `>=1.1.0` and the native gate/worktree/read-only capabilities; never fall back to labels or raw Git worktrees. Every observation uses `bd --readonly`. In embedded mode, Beads 1.1 does not implement JSON `doctor --agent`, so use `bd --readonly context --json` plus the focused gate, dependency, worktree, stale, orphan, and claim checks. In server mode also require `bd --readonly doctor --agent --json` and `bd --readonly doctor --server --json`. Never repair automatically.
+4. Require Beads `>=1.1.0` and the native gate/worktree/read-only capabilities; never fall back to labels or raw Git worktrees. Every observation uses `bd --readonly`. In embedded mode, Beads 1.1 does not implement JSON `doctor --agent`, so use `bd --readonly context --json` plus the focused gate, dependency, worktree, stale, orphan, and claim checks. In server mode also require `bd --readonly doctor --agent --json` and `bd --readonly doctor --server --json`. Never repair automatically.
 
 For a proven post-merge recovery, skip ticket allocation, implementation, review, freshness, and merge. Use the existing merge SHA and resume at the post-merge memory/close/push/cleanup steps; if remote movement would require rewriting that SHA, stop for human recovery.
 
 ## Ticket, Bead, and worktree
 
-1. For new work, allocate `{NNN}` as `/sdlc-ticket` does. Write the canonical primary-checkout `thoughts/tickets/{NNN}-{slug}.md` with `Status: approved`, `Type: chore`, configured target, 2-5 stable tags, scope, Open Questions, and at least one stable `AC-NNN` outcome. Include `Chore lane - no plan`. Invocation is the ticket approval.
+1. For new work, allocate `{NNN}` as `/sdlc-ticket` does. Write the canonical primary-checkout `thoughts/tickets/{NNN}-{slug}.md` with `Status: approved`, `Type: chore`, a `Target` from step 1's `targets`, 2-5 stable tags, scope, Open Questions, and at least one stable `AC-NNN` outcome. Include `Chore lane - no plan`. Invocation is the ticket approval.
 2. Create one Bead with the ticket as spec and stable identity, then atomically claim it:
 
    ```bash
@@ -84,13 +88,16 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
    interfaces lightly, states any read beyond the packet, and uses
    `bd --readonly`. In round two, verify prior stable `MF-<reviewer>-NNN` IDs
    first, then perform the complete lane review against the new packet.
-3. Require exactly one component verdict using the repository's exact grammar:
+3. Require exactly one component verdict using the repository's grammar:
 
    ```text
    Verdict: BLOCKED — <positive n> MUST FIX
    Verdict: APPROVED — <positive n> NIT
    Verdict: APPROVED
    ```
+
+   Hyphen, en dash and em dash all parse and normalize to ` — `; the rest of the
+   line is exact.
 
    A clean result includes Clean-Pass Evidence for ticket/ACs, deviations, sibling conventions, tests/failures, and applicable risk surfaces. Retry malformed output once against the same HEAD without consuming a round; a second failure labels `human` and stops. If HEAD or cleanliness moves during review, discard all reports and restart the same round.
 4. Persist `thoughts/reviews/{NNN}-round{n}.md` with:
@@ -113,6 +120,8 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
    Verdict: APPROVED
    ```
 
+   Check it with `sdlc review-artifact --validate thoughts/reviews/{NNN}-round{n}.md`
+   before committing; it reports every failure with its line number.
    Embed component reports verbatim in deterministic order before Overall. Later-round disposition is `fixed=<ids|none>; persists=<ids|none>; new=<ids|none>`. Compare actual files to the ticket's approved small scope for Scope-Check. Reconcile AC evidence, identities, counts, and verdict; the unique final line is Overall `Verdict:`. A failed Scope/AC control must correspond to an applicable component MUST FIX with a stable ID. If every component missed the concrete failure, give that evidence to the applicable reviewer for one same-HEAD contract retry; a second miss is malformed and escalates `human`. Never write a blocking aggregate with a zero MUST FIX count. Commit only the artifact.
 5. If round one blocks, fix every MUST FIX, rerun gates, commit/push, then run the complete set against new HEAD. If round-two MUST FIX count is non-decreasing, or round two remains blocked at all, persist evidence, label `human`, and stop. Code changes invalidate all approvals.
 6. After approval, append:
@@ -123,7 +132,7 @@ For a proven post-merge recovery, skip ticket allocation, implementation, review
 
 ## Merge and post-merge memory
 
-1. If Project Configuration enables Beads merge slots, require a previously initialized slot, then run `BEADS_ACTOR="<session-actor>" bd merge-slot acquire --holder="<session-actor>" --json` before final fetch/rebase/pull/merge, omitting `--wait`. A missing slot stops with `BEADS_ACTOR="<new-session-actor>" bd merge-slot create`; a held slot stops and reports holder/age. When disabled, do not use the feature.
+1. If the recorded `mergeSlotEnabled` is `true`, require a previously initialized slot, then run `BEADS_ACTOR="<session-actor>" bd merge-slot acquire --holder="<session-actor>" --json` before final fetch/rebase/pull/merge, omitting `--wait`. A missing slot stops with `BEADS_ACTOR="<new-session-actor>" bd merge-slot create`; a held slot stops and reports holder/age. When it is `false`, do not use the feature.
 2. Refresh main and the worktree. A conflict requires human resolution and fresh
    review. After a clean rebase, rerun
    `sdlc gates --cwd <worktree> --target <target>` and record

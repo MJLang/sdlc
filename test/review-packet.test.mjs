@@ -5,24 +5,32 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fingerprintContent } from '../lib/fingerprint.mjs';
-import { createReviewPackets, createStepPacket, formatReviewPacket, textualReferences } from '../lib/review-packet.mjs';
+import { createReviewPackets, createStepPacket, formatReviewPacket, reviewerNamesFor, textualReferences } from '../lib/review-packet.mjs';
 
 function fixture({ targetPaths = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'sdlc-review-packet-'));
   execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'tests@example.invalid'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'SDLC Tests'], { cwd: root });
-  for (const directory of ['thoughts/tickets', 'thoughts/plans', 'src/backend', 'src/frontend', 'src/shared', 'assets', 'docs']) mkdirSync(join(root, directory), { recursive: true });
-  writeFileSync(join(root, 'thoughts', 'AGENTS.md'), `# Workflow
-
-## Project Configuration
-
-- **Targets:** \`backend | frontend\`
-- **Quality gates:** \`node --test\`
-- **Target gates:** \`backend -> npm run test:backend\`
-${targetPaths ? '- **Target paths:** `backend -> src/backend/**, src/shared/**`\n- **Target paths:** `frontend -> src/frontend/**, src/shared/**`\n' : ''}- **Reviewers:** \`backend -> backend-code-reviewer; frontend -> frontend-code-reviewer\`
-- **Frontend constraints:** use the repository design tokens
-`);
+  for (const directory of ['.agents', 'thoughts/tickets', 'thoughts/plans', 'src/backend', 'src/frontend', 'src/shared', 'assets', 'docs']) mkdirSync(join(root, directory), { recursive: true });
+  writeFileSync(join(root, '.agents', 'sdlc.json'), JSON.stringify({
+    version: 1,
+    targets: [
+      {
+        name: 'backend',
+        gates: ['npm run test:backend'],
+        reviewers: ['backend-code-reviewer'],
+        ...(targetPaths ? { paths: ['src/backend/**', 'src/shared/**'] } : {}),
+      },
+      {
+        name: 'frontend',
+        reviewers: ['frontend-code-reviewer'],
+        ...(targetPaths ? { paths: ['src/frontend/**', 'src/shared/**'] } : {}),
+      },
+    ],
+    gates: ['node --test'],
+    frontendConstraints: 'use the repository design tokens',
+  }));
   const ticket = `---
 Status: approved
 Tags: [backend, frontend]
@@ -186,4 +194,17 @@ test('step packets quote live AC text, configured gates, identity, constraints, 
   assert.equal(packet.constraints, 'use the repository design tokens');
   assert.match(packet.resultContract, /^status=<pass\|blocked> commit=/);
   assert.equal(readFileSync(join(root, packet.plan.path), 'utf8').includes(packet.plan.sha256), false);
+});
+
+test('the cheap reviewer-set derivation agrees with the full packet build', () => {
+  const { root, approvalCommit } = fixture();
+  const fromPackets = createReviewPackets('1', { cwd: root, approvedPlanCommit: approvalCommit }).map((packet) => packet.reviewer);
+  assert.deepEqual(reviewerNamesFor({ cwd: root }), fromPackets);
+
+  // Without Target paths every changed file is unmapped, so the fallback set applies.
+  const unmapped = fixture({ targetPaths: false });
+  assert.deepEqual(
+    reviewerNamesFor({ cwd: unmapped.root }),
+    createReviewPackets('1', { cwd: unmapped.root }).map((packet) => packet.reviewer),
+  );
 });

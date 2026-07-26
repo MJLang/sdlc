@@ -1,6 +1,6 @@
 ---
 name: sdlc-review
-version: 0.5.1
+version: 0.6.0
 description: Prepare an implemented plan's Beads-visible worktree, approved-plan identity, diff, and persisted aggregate review for local human inspection without changing pipeline state.
 ---
 
@@ -37,14 +37,11 @@ Require `<NNN>`; never guess among plans.
    - `--editor`: open the configured editor at the worktree;
    - `--artifact`: open the persisted aggregate report;
    - `--diff`: present `main...HEAD`;
-   - `--preview`: start the configured preview from the worktree and return its URL. Require **Local preview** and **Preview URL** in Project Configuration; substitute `{worktree}` and `{port}`, with default port 4173.
+   - `--preview`: start the configured preview from the worktree and return its URL, default port 4173.
 
 Opening an editor, artifact, diff, or preview never implies approval. Close with the actual doctor/review status and say `/sdlc-land <NNN>` is available only when the user is satisfied and every landing precondition is healthy.
 
-Optional Project Configuration remains:
-
-```md
-- **Review editor:** `code {worktree}`
-- **Local preview:** `npm run dev -- --port {port}`
-- **Preview URL:** `http://localhost:{port}`
-```
+The CLI resolves the editor and preview itself from `.agents/sdlc.json`
+(`local.reviewEditor`, `local.preview.command`, `local.preview.url`) and
+reports plainly when one is unconfigured; the skill never reads or substitutes
+them. Either may be overridden per machine in `.agents/sdlc.local.json`.

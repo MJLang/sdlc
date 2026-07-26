@@ -59,33 +59,45 @@ npx skills add MJLang/sdlc --skill sdlc-ticket --skill sdlc-plan
 
 ## Configure a project
 
-Edit the configuration block in the generated `thoughts/AGENTS.md`:
+Project settings live in `.agents/sdlc.json`, a shared, committed JSON file that setup installs from `template/sdlc.template.json` and never overwrites afterward — not even under `--force`. Edit it directly, or inspect it first with `sdlc config` (below).
 
-```md
-- **Targets:** `app`
-- **Quality gates:**
-  - `npm test`
-- **Target gates:** `app -> npm run test:app`
-- **Target paths:** `app -> src/**, test/**`
-- **Reviewers:** `all targets -> backend-code-reviewer`
-- **Product docs:** `thoughts/docs/`
-- **Frontend constraints:** none
-- **Beads merge slot:** `off`
-- **Beads mode:** `embedded`
-- **Review editor:**
-- **Local preview:**
-- **Preview URL:**
+A minimal configuration:
+
+```json
+{
+  "$schema": "./sdlc.schema.json",
+  "version": 1,
+  "targets": [
+    { "name": "app", "paths": ["src/**", "test/**"], "gates": ["npm run test:app"], "reviewers": ["backend-code-reviewer"] }
+  ],
+  "gates": ["npm test"],
+  "reviewers": ["backend-code-reviewer"]
+}
 ```
 
-| Setting | Purpose |
-|---|---|
-| `Targets` | Lists the parts of the repository where work can land, such as `cms | jobs | web` in a monorepo. |
-| `Quality gates` | Defines ordered global commands for `sdlc gates`. Shell quoting is preserved exactly. |
-| `Target gates` | Adds a command for one target. Repeat `Target gates: <target> -> <command>` as needed. Unknown targets are rejected. |
-| `Target paths` | Maps a target to review paths. Repeat `Target paths: <target> -> <glob-list>` as needed. More specific matches come first, and an overlapping path belongs to every matching lane. |
-| `Reviewers` | Maps targets to bundled reviewers. Unmapped lanes use `general-code-reviewer`. |
-| `Beads mode` | Use `embedded` for one mutating session with read-only observers. Use `server` only when multiple root sessions must mutate state concurrently. |
-| `Beads merge slot` | Leave this `off` until you have concurrent landers and a tested way to recover a stale holder. |
+`targets` names the parts of the repository where work can land; each target's `paths` classify changed files into review lanes, its `gates` add target-specific commands on top of the global `gates`, and its `reviewers` picks which bundled profiles review it. See [`docs/configuration.md`](docs/configuration.md) for the full key reference — type, default, and a working example for every setting, including `productDocs`, `frontendConstraints`, `beads.mode`, `beads.mergeSlot`, and the reserved `models` tier/effort policy block.
+
+### Machine-scoped overrides
+
+`.agents/sdlc.local.json` is an optional overlay for settings that vary by machine, not by project. `sdlc setup` git-ignores it automatically, and it may declare only four top-level keys: `$schema`, `version`, `local`, and `models`. Every other top-level key is refused by name.
+
+```json
+{
+  "version": 1,
+  "local": {
+    "reviewEditor": "code {worktree}",
+    "preview": { "command": "npm run dev -- --port {port}", "url": "http://localhost:{port}" }
+  }
+}
+```
+
+That boundary exists because it is the committed file, not this one, that decides what a change must satisfy before it lands — the gates that must pass, the targets and reviewers it must go through, whether a merge slot is required. `.agents/sdlc.local.json` is git-ignored, so nothing in it is ever reviewed or reaches `main`; if it could weaken any of that, an ignored file could quietly disarm the pipeline's own gates. The four keys it may set are genuinely per-machine — an editor command, a local preview URL, a model tier or effort a developer wants to try. The boundary itself is derived from each key's `localOverridable` flag in the schema, not a hand-maintained list, so it cannot silently drift out of step as keys are added.
+
+### Editor validation and inspection
+
+`sdlc setup` installs two generated JSON Schemas into `.agents/`: `sdlc.schema.json` for `.agents/sdlc.json`, and `sdlc.local.schema.json` for the overlay. Point an editor at one with the file's `$schema` key, as in the examples above, to catch a malformed configuration offline before you run anything.
+
+Run `sdlc config` to print every effective setting and the file that produced it — `.agents/sdlc.json`, `.agents/sdlc.local.json`, or `default`. Narrow to one value with `sdlc config --field <dotted.path>`, for example `sdlc config --field local.reviewEditor`.
 
 Add product and vision documents to `thoughts/docs/INDEX.md`. Ticket and plan creation reads the overview and rows that match the current targets or tags. It opens more documents only when the indexed material leaves an ambiguity.
 
@@ -194,6 +206,16 @@ Every skill and check uses the same hash function. It reads the full file as UTF
 
 Add `--rev <commit>` to hash the canonical text at a specific commit instead of the working copy, so an implementer and a reviewer can prove they read identical bytes at the approved commit. `<file>` may be given absolute or relative to the current directory; it is resolved against the repository root before the read. The command fails clearly and distinctly when the revision does not resolve to a commit versus when the path does not exist at that revision.
 
+### `sdlc config [--json] [--field <dotted.path>]`
+
+```bash
+sdlc config
+sdlc config --field local.reviewEditor
+sdlc config --json
+```
+
+Prints every effective setting resolved from `.agents/sdlc.json` and `.agents/sdlc.local.json`, one `key=value (source)` line per setting, where `source` names the file that produced it or the literal `default`. `--field` narrows the output to one dotted key. `--json` returns the same resolved shape doctor and guard embed. Exits non-zero with every configuration error when the configuration is invalid, legacy, or missing, and writes nothing.
+
 ### `sdlc doctor <NNN> [--json]`
 
 ```bash
@@ -243,6 +265,30 @@ Logs have owner-only permissions. sdlc keeps ten runs, caps each log with a trun
 `review-packet` creates one deterministic packet per configured reviewer. Use `--reviewer` to select one reviewer. The `--base`, `--head`, and `--json` flags control the projection. A packet contains the current ticket intent and acceptance criteria, approved identity, and relevant plan steps. It also contains every changed file, the lane diff, lexical cross-lane interfaces in both directions, the latest gate summary, and earlier findings.
 
 Without `Target paths`, the model classifies changes. The CLI does not apply a silent heuristic.
+
+### `sdlc review-artifact`
+
+```bash
+sdlc review-artifact --template 024 --round 1 --head <reviewed-head> > thoughts/reviews/024-round1.md
+sdlc review-artifact --validate thoughts/reviews/024-round1.md
+```
+
+A format the CLI validates is a format the CLI should produce. `--template`
+emits the aggregate skeleton with every mechanically known value already
+resolved: title, reviewed code SHA, approved plan SHA-256, approved plan commit,
+and the reviewer set derived from `review-packet`. Use `--reviewers a,b,c` to
+override that set. It fills nothing else — verdicts, findings, and control-line
+values are review evidence, so a template never manufactures them.
+
+`--validate` parses one artifact, checks convergence against the previous round
+when that file exists next to it, and exits non-zero on failure. It reports
+*every* failure with its line number, so one pass repairs the whole artifact
+instead of one round trip per problem. Add `--json` for the structured result.
+
+Verdict lines accept a hyphen, en dash, or em dash and normalize to ` — ` on
+write; the dash an agent cannot reliably control never halts a review. Structure
+stays strict: exactly one verdict line, it must be the final standalone line,
+and counts must reconcile against the component reports.
 
 ### `sdlc actor <runtime> [--new]`
 
@@ -312,6 +358,8 @@ Fix-Disposition: fixed=MF-backend-001; persists=none; new=none
 Verdict: APPROVED
 ```
 
+The skill does not hand-author this format: `sdlc review-artifact --template` generates the skeleton and `--validate` checks the filled result. See [`sdlc review-artifact`](#sdlc-review-artifact).
+
 The first round uses `Fix-Disposition: N/A`. Any code change invalidates earlier approvals. If the number of MUST FIX findings fails to decrease in a round, sdlc saves the artifact, labels the epic `human`, and stops unattended review. Plans allow at most three rounds and chores allow two. A retry for a malformed artifact at the same HEAD does not consume a round.
 
 Before adding its binding note to the epic, sdlc commits the approved aggregate. The note has the form `review: APPROVED sha=... code-sha=... plan-sha256=... plan-commit=... rounds=<n>`. `/sdlc-land` reproduces every identity in that record.
@@ -342,13 +390,23 @@ All four agents are read-only. `setup --claude` installs Claude Code definitions
 
 The project prime installed by setup contains workflow pointers but no memory bodies. Each ticket carries two to five stable retrieval tags. Planning searches for exact `tag:<tag>` markers and recalls only applicable keys. Implementation appends `memory-candidate:` notes. After the squash merge, `/sdlc-land` promotes only facts that are still true and records the merge SHA as provenance. Cancelled work never promotes its candidates.
 
+### Migrate an existing install to 0.6.0
+
+Version 0.6.0 moves project configuration out of the generated `thoughts/AGENTS.md` and into `.agents/sdlc.json`. This is a breaking change to the configuration contract, released as a minor version under this repository's pre-1.0 convention — there is no automated migration, so move the twelve settings in your project's `## Project Configuration` section by hand:
+
+1. For each setting, find its new dotted key in the [legacy-migration table](docs/configuration.md#legacy-migration) and write it into `.agents/sdlc.json`.
+2. Delete the entire `## Project Configuration` section from `thoughts/AGENTS.md`, not just its values.
+3. Run setup again with your agent target and `--force`.
+
+Setup, `sdlc doctor`, and every `sdlc guard <stage>` refuse to run while that section remains, naming `.agents/sdlc.json`, the shipped template, and the exact settings they found. That refusal is deliberate: silently ignoring the old section would mean a project's gates, targets, and reviewers stopped being enforced without anyone deciding that on purpose.
+
 ### Migrate an existing install to 0.5.1
 
 Version 0.5.1 namespaces every pipeline skill with `sdlc-` to avoid collisions with harness-native commands. Run setup again with the required agent target and `--force`, then verify and remove stale unprefixed SDLC skill directories such as `.agents/skills/plan/` and `.claude/skills/plan/`. The commands now use `/sdlc-ticket`, `/sdlc-plan`, `/sdlc-approve`, `/sdlc-implement`, `/sdlc-review`, `/sdlc-land`, `/sdlc-chore`, `/sdlc-cancel`, `/sdlc-next`, and `/sdlc-queue`.
 
 ### Migrate an existing install to 0.4
 
-Run setup again with the required agent target and `--force`. This refreshes the compact contracts, skills, reviewer profiles, and managed prime. Setup creates the documentation index only when it is missing, so it keeps a project-curated index intact. Add the ordered `Quality gates` plus any repeated `Target gates` and `Target paths` lines to Project Configuration. A project without `Target paths` remains safe, but review packets retain the complete diffs so the model can classify them explicitly.
+Run setup again with the required agent target and `--force`. This refreshes the compact contracts, skills, reviewer profiles, and managed prime; it never touches `.agents/sdlc.json`, which installs once and stays out of `--force`'s reach for good. Setup creates the documentation index only when it is missing, so it keeps a project-curated index intact. Configure the ordered `gates` plus any per-target `gates`, `paths`, and `reviewers` in `.agents/sdlc.json` (see [Configure a project](#configure-a-project)). A project without target `paths` remains safe, but review packets retain the complete diffs so the model can classify them explicitly.
 
 The old `pipeline-snapshot` profile is no longer installed. Remove stale copies from `.claude/agents/pipeline-snapshot.md` and `.codex/agents/pipeline-snapshot.toml`. `/sdlc-next` and `/sdlc-queue` now call `sdlc snapshot` directly.
 

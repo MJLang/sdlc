@@ -7,21 +7,26 @@ import test from 'node:test';
 import { configuredGateCommands, parseProjectConfig } from '../lib/config.mjs';
 import { formatGateRun, runGates } from '../lib/gates.mjs';
 
-function configSource(extra = '') {
-  return `# Workflow
-
-## Project Configuration
-
-- **Targets:** \`app | web\`
-- **Quality gates:**
-  - \`node --test passing.test.mjs\`
-  - \`node -e "console.log('quoted value')"\`
-- **Target gates:** \`app -> node -e "console.log('app target')"\`
-- **Target gates:** \`app -> node -e "console.log('left;right')"\`
-- **Target paths:** \`app -> lib/**, test/**\`
-${extra}
-## Authority
-`;
+function configSource(overrides = {}) {
+  return JSON.stringify({
+    version: 1,
+    targets: [
+      {
+        name: 'app',
+        paths: ['lib/**', 'test/**'],
+        gates: [
+          'node -e "console.log(\'app target\')"',
+          'node -e "console.log(\'left;right\')"',
+        ],
+      },
+      { name: 'web' },
+    ],
+    gates: [
+      'node --test passing.test.mjs',
+      'node -e "console.log(\'quoted value\')"',
+    ],
+    ...overrides,
+  });
 }
 
 function repository() {
@@ -29,15 +34,15 @@ function repository() {
   execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'tests@example.invalid'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'SDLC Tests'], { cwd: root });
-  mkdirSync(join(root, 'thoughts'), { recursive: true });
-  writeFileSync(join(root, 'thoughts', 'AGENTS.md'), configSource());
+  mkdirSync(join(root, '.agents'), { recursive: true });
+  writeFileSync(join(root, '.agents', 'sdlc.json'), configSource());
   writeFileSync(join(root, 'passing.test.mjs'), "import test from 'node:test'; import assert from 'node:assert/strict'; test('pass', () => assert.equal(1, 1));\n");
   execFileSync('git', ['add', '.'], { cwd: root });
   execFileSync('git', ['commit', '-m', 'fixture'], { cwd: root, stdio: 'ignore' });
   return root;
 }
 
-test('Project Configuration parses ordered gates, target mappings, and opaque shell quoting', () => {
+test('.agents/sdlc.json parses ordered gates, target mappings, and opaque shell quoting', () => {
   const config = parseProjectConfig(configSource());
   assert.deepEqual(config.targets, ['app', 'web']);
   assert.deepEqual(config.qualityGates, [
@@ -53,9 +58,16 @@ test('Project Configuration parses ordered gates, target mappings, and opaque sh
   assert.throws(() => configuredGateCommands(config, 'api'), /Unknown target/);
 });
 
-test('Project Configuration refuses mappings for unknown targets', () => {
-  const config = parseProjectConfig(configSource('- **Target gates:** `api -> npm test`\n'));
-  assert(config.errors.some((error) => error.includes('unknown target "api"')));
+test('a target referenced from outside the file (e.g. --target) is still refused, and a duplicate target name inside it is refused', () => {
+  const config = parseProjectConfig(configSource());
+  assert.throws(() => configuredGateCommands(config, 'api'), /Unknown target/);
+
+  const duplicate = parseProjectConfig(JSON.stringify({
+    version: 1,
+    targets: [{ name: 'app' }, { name: 'app' }],
+    gates: ['node -e "process.exit(0)"'],
+  }));
+  assert(duplicate.errors.some((error) => error.includes('targets[1].name') && error.includes('duplicates targets[0].name')));
 });
 
 test('quality gates keep the worktree clean and emit terse passing summaries', async () => {
@@ -72,7 +84,11 @@ test('quality gates keep the worktree clean and emit terse passing summaries', a
 
 test('a failing gate returns a bounded excerpt, full log path, and non-zero status', async () => {
   const root = repository();
-  const config = parseProjectConfig(`# Workflow\n\n## Project Configuration\n\n- **Targets:** \`app\`\n- **Quality gates:** \`node -e "console.error('AssertionError: expected 1'); process.exit(7)"\`\n`);
+  const config = parseProjectConfig(JSON.stringify({
+    version: 1,
+    targets: [{ name: 'app' }],
+    gates: ['node -e "console.error(\'AssertionError: expected 1\'); process.exit(7)"'],
+  }));
   const result = await runGates({ cwd: root, config, logLimit: 1024 });
   assert.equal(result.ok, false);
   assert.equal(result.results[0].status, 7);
@@ -87,7 +103,7 @@ test('gate logs retain only the latest ten runs', async () => {
   const logRoot = join(common, 'sdlc', 'logs');
   mkdirSync(logRoot, { recursive: true });
   for (let index = 0; index < 12; index += 1) mkdirSync(join(logRoot, `old-${String(index).padStart(2, '0')}`));
-  const config = parseProjectConfig('# W\n\n## Project Configuration\n\n- **Targets:** `app`\n- **Quality gates:** `node -e "process.exit(0)"`\n');
+  const config = parseProjectConfig(JSON.stringify({ version: 1, targets: [{ name: 'app' }], gates: ['node -e "process.exit(0)"'] }));
   await runGates({ cwd: root, config });
   assert.equal(readdirSync(logRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).length, 10);
 });
@@ -97,14 +113,18 @@ test('unwritable Git-common storage falls back, and two unavailable stores refus
   const fakeCommon = join(root, 'common-file');
   writeFileSync(fakeCommon, 'not a directory');
   const fallbackParent = mkdtempSync(join(tmpdir(), 'sdlc-gates-fallback-'));
-  const config = parseProjectConfig('# W\n\n## Project Configuration\n\n- **Targets:** `app`\n- **Quality gates:** `node -e "process.exit(0)"`\n');
+  const config = parseProjectConfig(JSON.stringify({ version: 1, targets: [{ name: 'app' }], gates: ['node -e "process.exit(0)"'] }));
   const fallback = await runGates({ cwd: root, config, commonDirectory: fakeCommon, temporaryDirectory: fallbackParent });
   assert.equal(fallback.storage, 'temporary');
 
   const fakeTemporary = join(root, 'temporary-file');
   writeFileSync(fakeTemporary, 'not a directory');
   const marker = join(root, 'gate-ran');
-  const refusingConfig = parseProjectConfig(`# W\n\n## Project Configuration\n\n- **Targets:** \`app\`\n- **Quality gates:** \`node -e "require('node:fs').writeFileSync('${marker}', 'ran')"\`\n`);
+  const refusingConfig = parseProjectConfig(JSON.stringify({
+    version: 1,
+    targets: [{ name: 'app' }],
+    gates: [`node -e "require('node:fs').writeFileSync('${marker}', 'ran')"`],
+  }));
   await assert.rejects(
     runGates({ cwd: root, config: refusingConfig, commonDirectory: fakeCommon, temporaryDirectory: fakeTemporary }),
     /Quality gates were not run/,

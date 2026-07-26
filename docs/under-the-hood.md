@@ -83,33 +83,78 @@ Pi profiles use the same source bodies, rendered as project-local
 agent discovery (such as pi-subagents). They inherit the root instructions and
 the shared `.agents/skills/` catalog.
 
-## Project Configuration
+## Project configuration
 
-`lib/config.mjs` parses the `## Project Configuration` section in
-`thoughts/AGENTS.md`. The grammar is intentionally small and readable as
-Markdown rather than introducing another configuration file.
+`lib/config.mjs` reads and validates `.agents/sdlc.json`, the shared,
+committed source of truth for targets, gates, reviewers, and coordination
+settings. `lib/config-schema.mjs` is the single authority for its key set —
+one entry per key with its type, default, and `localOverridable` flag — and
+both the shipped template and `docs/configuration.md` render from it, checked
+for byte-equal drift by a committed test.
 
-The parser understands:
+`.agents/sdlc.json` resolves:
 
-- configured targets;
-- ordered global quality gates;
-- repeated target-specific gate mappings;
-- repeated target-to-path mappings;
-- target-to-reviewer mappings;
-- product-doc and frontend constraints;
-- embedded or server Beads mode;
-- optional merge-slot use; and
-- local review editor and preview commands.
+- an ordered list of named targets, each with its own paths, gates, and
+  reviewers;
+- ordered global quality gates, run ahead of any target-specific ones;
+- product-doc and frontend-constraint prose;
+- embedded or server Beads mode, and optional merge-slot use; and
+- local review-editor and preview commands.
 
-Gate commands are opaque shell strings. Quotes, pipes, redirects, and
-semicolons are retained exactly; sdlc does not tokenize and rebuild them.
-Gate and path mappings that refer to an unknown configured target are errors.
+Gate commands are opaque strings. JSON carries backticks, pipes, semicolons,
+and `->` natively, so the reader never tokenizes, splits, or requotes a gate
+command. Nesting `paths`/`gates`/`reviewers` under each target's own object
+makes "referenced but never declared" unrepresentable inside the file itself;
+that error class survives only where a target name still arrives from
+*outside* the file — an unknown `--target` flag, or a plan/ticket `Target:`
+field. Inside the file, a duplicate target name is the error instead.
 
-`Target paths` drives reviewer lanes. Matching globs are sorted by specificity
+Target `paths` drive reviewer lanes. Matching globs are sorted by specificity
 for deterministic output, but a more specific match does not erase a broader
-one. If a file matches two targets, it belongs to both. If no path map is
-configured, the CLI says classification is model-owned and keeps the complete
-readable diff instead of guessing from directory names.
+one — a file matching two targets belongs to both. Without any `paths`, the
+CLI says classification is model-owned and keeps the complete readable diff
+instead of guessing from directory names.
+
+### The machine-scoped overlay
+
+`.agents/sdlc.local.json` is an optional overlay that `sdlc setup` adds to
+`.gitignore` automatically, once, whether or not the file already exists. It
+may declare only four top-level keys — `$schema`, `version`, `local`, and
+`models` — derived from each field's `localOverridable` flag in
+`lib/config-schema.mjs` rather than a hand-written list, so the boundary
+cannot drift out of step as keys are added. Every other top-level key is
+refused *by name*: the settings that decide what must pass before code lands
+— gates, targets, reviewers, the merge slot — stay in the committed file, out
+of reach of a file nothing else ever reviews because it is git-ignored.
+`local` and `models` merge deep and leaf-wise between the two files; arrays
+and scalars are whole-value replacements, with the overlay winning.
+
+Two JSON Schema (draft 2020-12) documents render from the same schema
+authority — `sdlc.schema.json` for `.agents/sdlc.json`, and
+`sdlc.local.schema.json` for the overlay — and `sdlc setup` installs both
+into `.agents/`, so an editor can validate either file offline through its
+`$schema` key.
+
+### Provenance
+
+Every effective setting reports the file that produced it. `readProjectConfig`
+returns a `sources` map keyed by dotted field path (`beads.mode`,
+`local.reviewEditor`, `models.roles.plan-reviewer.tier`) whose value is the
+repository-relative file that set it, or the literal string `default`. `sdlc
+config`, `sdlc doctor --json`, and every `sdlc guard <stage> --json` carry
+that same map, so a value the local overlay set is visibly distinct from one
+the committed file set.
+
+### Refusing before any stage runs
+
+A `.agents/sdlc.json` that fails validation, or a `thoughts/AGENTS.md` that
+still carries the retired `## Project Configuration` heading, blocks every
+stage before it can run. `sdlc doctor` reports `state = blocked` with the
+configuration errors listed first, ahead of any other diagnostic. `sdlc guard
+<stage> <NNN>` refuses before its stage matrix runs at all, with
+`code=config-invalid` and `recovery=sdlc config`, carrying every
+configuration error as context. `sdlc setup` refuses the same way, before
+writing any file.
 
 ## Artifacts and reproducible identity
 
@@ -196,7 +241,7 @@ queries.
 `createDoctorInspectionContext()` collects shared facts once:
 
 - the primary checkout and current HEAD;
-- parsed Project Configuration;
+- resolved `.agents/sdlc.json` configuration, with the local overlay merged in;
 - Beads installation and capability results;
 - connection mode and health;
 - ready and in-progress issues;
@@ -561,14 +606,14 @@ provides subpath exports.
 | `artifacts.mjs` | Ticket, plan, and research parsing | Used by doctor, packets, and skills |
 | `fingerprint.mjs` | Canonical artifact normalization and SHA-256 | `sdlc hash` |
 | `beads.mjs` | Capability checks, actors, safe adapters, native diagnostics | `sdlc actor`; all state readers |
-| `config.mjs` | Project Configuration grammar and lane classification | Gates, packets, local review |
+| `config.mjs` | Reads and validates `.agents/sdlc.json`/`.agents/sdlc.local.json`, merges the overlay, resolves provenance, and classifies lanes | Gates, packets, local review, `sdlc config` |
 | `doctor.mjs` | Full artifact/Beads/Git/review diagnosis | `sdlc doctor` |
 | `snapshot.mjs` | Deterministic `/sdlc-next` and `/sdlc-queue` projection | `sdlc snapshot` |
 | `guard.mjs` | Stage acceptance matrices | `sdlc guard` |
 | `resume.mjs` | Precondition checks and claim adoption for an abandoned plan epic | `sdlc resume` |
 | `gates.mjs` | Ordered execution, bounded output, protected logs | `sdlc gates` |
 | `review-packet.mjs` | Step and reviewer context packets | `sdlc review-packet` plus library API |
-| `review-artifact.mjs` | Review grammar and convergence | Used by doctor and review skills |
+| `review-artifact.mjs` | Review grammar, template, and convergence | `sdlc review-artifact`; used by doctor and review skills |
 
 `bin/sdlc.mjs` is intentionally a thin command dispatcher around these
 libraries plus setup and local human review. Keeping the logic in importable
@@ -582,6 +627,10 @@ thoughts/                   canonical intent, plans, research, reviews
 .worktrees/                 Beads-managed implementation worktrees
 .git/sdlc/actors/           session actor registry shared by worktrees
 .git/sdlc/logs/             preferred protected quality-gate logs
+.agents/sdlc.json           shared, committed project configuration
+.agents/sdlc.local.json     machine-scoped overlay, git-ignored by setup
+.agents/sdlc.schema.json    generated JSON Schema for .agents/sdlc.json
+.agents/sdlc.local.schema.json generated JSON Schema for the overlay
 .agents/skills/             canonical installed skill copies
 .claude/skills/             links to the canonical skills for Claude
 .claude/agents/             Claude reviewer profiles

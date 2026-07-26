@@ -4,32 +4,19 @@ The pipeline is `ticket -> plan -> approve -> implement -> land`. Frontmatter
 records human-gate state; Beads records live execution. Run each transition
 through its owning skill instead of reproducing its procedure here.
 
-## Project Configuration
+## Configuration
 
-This section is the configuration authority. Gate commands are opaque shell
-strings and run in listed order. Repeat `Target gates` and `Target paths` lines
-when needed; target-path overlap deliberately assigns a file to every match.
+`.agents/sdlc.json` is the configuration authority; `.agents/sdlc.local.json`
+is an optional, machine-scoped, Git-ignored overlay of it. Read `sdlc config`
+or `docs/configuration.md` for current values and their dotted-key names -
+this file never repeats them, so it cannot drift out of sync.
 
-- **Targets:** `app`
-- **Quality gates:**
-  - `npm test`
-- **Target gates:** <!-- optional: `app -> npm run test:app` -->
-- **Target paths:** `app -> **`
-- **Reviewers:** `all targets -> backend-code-reviewer`
-- **Product docs:** `thoughts/docs/`
-- **Frontend constraints:** `none`
-- **Beads merge slot:** `off`
-- **Beads mode:** `embedded`
-- **Review editor:** <!-- optional: `code {worktree}` -->
-- **Local preview:** <!-- optional: `npm run dev -- --port {port}` -->
-- **Preview URL:** <!-- optional: `http://localhost:{port}` -->
-
-`Quality gates` are global. `Target gates: <target> -> <command>` adds a command
-for one configured target. `Target paths: <target> -> <comma-separated globs>`
-classifies review lanes; malformed or unknown targets are refused. Keep embedded
-Beads for one mutating root plus read-only observers; use server mode only for
-genuine concurrent writers. Enable the merge slot only after initializing it
-under an authorized actor and documenting stale-holder recovery.
+Gate commands are opaque shell strings and run in declaration order. Target
+paths may overlap; overlap deliberately assigns a changed file to every
+matching target, not just the most specific one. Keep embedded Beads for one
+mutating root plus read-only observers; use server mode only for genuine
+concurrent writers. Enable the merge slot only after initializing it under an
+authorized actor and documenting stale-holder recovery.
 
 ## Authority
 

@@ -17,13 +17,39 @@ function repository() {
   return root;
 }
 
+function resolvedConfig(overrides = {}) {
+  return {
+    version: 1,
+    path: '.agents/sdlc.json',
+    localPath: null,
+    targets: ['app'],
+    qualityGates: ['npm test'],
+    targetGates: { app: [] },
+    targetPaths: { app: ['src/**'] },
+    reviewers: { app: ['backend-code-reviewer'] },
+    defaultReviewers: ['backend-code-reviewer'],
+    productDocs: 'thoughts/docs/',
+    frontendConstraints: 'none',
+    beadsMode: 'embedded',
+    mergeSlotEnabled: false,
+    reviewEditor: null,
+    localPreview: null,
+    previewUrl: null,
+    models: { defaults: { tier: 'balanced', effort: 'medium' }, roles: {}, tiers: {} },
+    sources: {},
+    errors: [],
+    mode: 'embedded',
+    ...overrides,
+  };
+}
+
 function context(overrides = {}) {
   return {
     primary: repository(),
     head: 'a'.repeat(40),
     now: Date.parse('2026-07-14T12:00:00Z'),
     installation: { version: '1.1.0' },
-    config: { mode: 'embedded' },
+    config: resolvedConfig(),
     native: {
       ready: { data: [{ id: 'step-1' }] },
       gates: { data: [] },
@@ -67,8 +93,20 @@ test('idle next snapshot has stable compact schema and no selected transition', 
   assert.equal(result.beads.healthValid, true);
   assert.equal(result.selected, undefined);
   assert.equal(result.candidates, undefined);
-  assert.deepEqual(Object.keys(result), ['schema', 'view', 'generatedAt', 'expiresAt', 'head', 'state', 'beads', 'humanQueue']);
+  assert.deepEqual(Object.keys(result), ['schema', 'view', 'generatedAt', 'expiresAt', 'head', 'state', 'config', 'beads', 'humanQueue']);
   assert.equal(result.humanQueue[0].code, 'ticket-approval');
+});
+
+test('the config projection carries resolved values, sources, path, localPath, and errors, from the already-collected context - no new read', () => {
+  const shared = context({ config: resolvedConfig({ beadsMode: 'server', errors: ['.agents/sdlc.json: beads.mode "cluster" is not one of embedded|server.'] }) });
+  const result = buildSnapshot({ view: 'next', context: shared, diagnoses: [], now: shared.now });
+  assert.equal(result.config.beadsMode, 'server');
+  assert.equal(result.config.path, '.agents/sdlc.json');
+  assert.deepEqual(result.config.targets, ['app']);
+  assert.deepEqual(result.config.errors, ['.agents/sdlc.json: beads.mode "cluster" is not one of embedded|server.']);
+
+  const queue = buildSnapshot({ view: 'queue', context: shared, diagnoses: [], now: shared.now });
+  assert.deepEqual(queue.config, result.config);
 });
 
 test('idle snapshots expose global health failures without requiring an active artifact', () => {

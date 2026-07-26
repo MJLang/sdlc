@@ -15,7 +15,7 @@ Review universal concerns: ticket intent, plan conformance, repository consisten
 
 Do not pretend to provide a specialist frontend design-system/WCAG audit or a domain-specific security, migration, or infrastructure assessment. A concrete defect remains in scope regardless of stack. If something needs specialist judgment but you cannot prove a defect, record the coverage gap in Notes or as a NIT; never manufacture a MUST FIX.
 
-This fallback should not replace a specialist mapped to the work's target in `thoughts/AGENTS.md`. If the parent gives you an explicit lane or file scope because another reviewer covers the rest of a mixed diff, review that scope fully and give the rest only a light correctness pass.
+This fallback should not replace a specialist mapped to the work's target in `.agents/sdlc.json` (`targets[].reviewers`). If the parent gives you an explicit lane or file scope because another reviewer covers the rest of a mixed diff, review that scope fully and give the rest only a light correctness pass.
 
 ## Operating context
 

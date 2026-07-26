@@ -26,7 +26,12 @@ function createRepository({ status = 'approved', epic = 'test-epic', mergeSlotOn
   execFileSync('git', ['config', 'user.email', 'tests@example.invalid'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'SDLC Tests'], { cwd: root });
   mkdirSync(join(root, 'thoughts', 'plans'), { recursive: true });
-  writeFileSync(join(root, 'thoughts', 'AGENTS.md'), `# Workflow\n\n## Project Configuration\n\n- **Beads mode:** \`embedded\`\n- **Beads merge slot:** \`${mergeSlotOn ? 'on' : 'off'}\`\n`);
+  mkdirSync(join(root, '.agents'), { recursive: true });
+  writeFileSync(join(root, '.agents', 'sdlc.json'), JSON.stringify({
+    version: 1,
+    targets: [],
+    beads: { mode: 'embedded', mergeSlot: mergeSlotOn ? 'on' : 'off' },
+  }));
   writeFileSync(join(root, 'thoughts', 'plans', `${planNumber}.md`), planSource({ status, epic }));
   execFileSync('git', ['add', '.'], { cwd: root });
   execFileSync('git', ['commit', '-m', 'plan: approve export'], { cwd: root, stdio: 'ignore' });

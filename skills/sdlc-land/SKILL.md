@@ -1,6 +1,6 @@
 ---
 name: sdlc-land
-version: 0.5.1
+version: 0.6.0
 description: Human gate that verifies the reviewed code and approved-plan fingerprint, optionally acquires the Beads merge slot, squash-merges to main, performs the post-merge memory audit, and safely closes and cleans up.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true
@@ -48,7 +48,7 @@ Capture the literal and carry it unchanged through this invocation. Per the
 contract actor invariant, prefix every mutation with
 `BEADS_ACTOR="<session-actor>"`; never rely on shell export or an older actor.
 
-Read `Beads merge slot` from Project Configuration.
+Read `mergeSlot=` from the accepted `sdlc guard land {NNN}` line already run above.
 
 - When off, do not create, check, acquire, or release a slot.
 - When on, require the capability and a previously initialized slot. If doctor reports `not found`, stop and have an authorized human root session run `BEADS_ACTOR="<new-session-actor>" bd merge-slot create`; rerun `/sdlc-land` afterward. Never silently create a coordination primitive merely because landing was requested. With an existing slot, acquire **before** any fetch, rebase, pull, or merge:

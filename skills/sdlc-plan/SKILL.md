@@ -1,6 +1,6 @@
 ---
 name: sdlc-plan
-version: 0.5.1
+version: 0.6.0
 description: Research and write a traceable implementation plan for an approved ticket, then run the bounded independent plan critique. Use when an approved ticket needs a concrete plan before implementation.
 argument-hint: <ticket number, e.g. 003>
 ---
@@ -9,15 +9,17 @@ Write the plan for ticket `$ARGUMENTS` under `thoughts/AGENTS.md`. Research is a
 
 ## Preconditions
 
-Run `sdlc guard plan {NNN}`. The `new-plan` matrix row accepts only
-`ready_for_planning` and returns the canonical ticket path/hash; any other mode
-refuses. When its coded recovery is insufficient, run
+Run `sdlc guard plan {NNN} --json`. The `new-plan` matrix row accepts only
+`ready_for_planning` and returns the canonical ticket path/hash plus a `config`
+projection: `targets` (declared target names, in precedence order),
+`gates.global`/`gates.byTarget`, `productDocs`, and `frontendConstraints`. Any
+other mode refuses. When its coded recovery is insufficient, run
 `sdlc doctor {NNN} --json` once for full diagnostics. Confirm the returned hash
 with `sdlc hash <absolute-ticket-path>`; never reproduce the hash algorithm.
 
 ## Evidence and memories
 
-1. Read the canonical ticket and `thoughts/docs/INDEX.md`. Load the overview plus target/tag-matched documents, expand only on ambiguity, and record the used documents under **Documentation Sources**. Then read Project Configuration, relevant source/tests, and repository instructions.
+1. Read the canonical ticket and `thoughts/docs/INDEX.md`. Load the overview plus target/tag-matched documents, expand only on ambiguity, and record the used documents under **Documentation Sources**. Then read the `config` projection already returned by the preflight guard call above, relevant source/tests, and repository instructions.
 2. Retrieve candidates for every ticket tag with `bd --readonly memories "tag:<tag>" --json`; deduplicate keys and use `bd --readonly recall <key>`. Apply a memory only when its `Applies when` overlaps the ticket, and verify it against current code.
 3. If frontend work is plausible, honor the configured design-system constraints and design skill and record their effect.
 
@@ -113,7 +115,7 @@ The body must contain:
 - **Documentation Sources** - only the indexed documents that informed the plan;
 - **Current-State Findings** - a table with `Area or path | Finding | Evidence | Implication`; cite `path:line`;
 - **Implementation Steps** - immutable numbered steps using the exact shape below;
-- **Quality Gates** - Project Configuration gates plus target test/typecheck/build commands;
+- **Quality Gates** - the preflight guard's `gates.global` plus the target's own `gates.byTarget` entries and target test/typecheck/build commands;
 - **Verification** - map every live AC to a concrete exercise and expected outcome;
 - **Approval Attention** - a table with `ID | Operation or decision | Why attention is required | Timing | Status`, or `None`;
 - **Open Questions** - include research unknowns and human decisions, or `None`;

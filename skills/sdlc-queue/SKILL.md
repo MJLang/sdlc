@@ -1,6 +1,6 @@
 ---
 name: sdlc-queue
-version: 0.5.1
+version: 0.6.0
 description: Format the deterministic read-only pipeline snapshot as a compact human dashboard.
 ---
 

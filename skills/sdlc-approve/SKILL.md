@@ -1,6 +1,6 @@
 ---
 name: sdlc-approve
-version: 0.5.1
+version: 0.6.0
 description: Human gate that commits and approves a reviewed plan, creates its traceable Beads graph and approval hash record, or safely re-syncs an amended approved plan.
 argument-hint: <plan number, e.g. 003>
 disable-model-invocation: true

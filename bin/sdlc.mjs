@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import net from 'node:net';
 import { createSessionActor, inspectBeadsInstallation, repositorySessionActor } from '../lib/beads.mjs';
-import { readProjectConfig } from '../lib/config.mjs';
+import { configProjection, detectLegacyConfigSection, effectiveSettings, readProjectConfig } from '../lib/config.mjs';
 import { doctorExitCode, formatDoctor, inspectDoctor, resolvePrimaryCheckout } from '../lib/doctor.mjs';
 import { fingerprintContent, fingerprintFile, formatFingerprint } from '../lib/fingerprint.mjs';
 import { formatGateRun, gateExitCode, runGates } from '../lib/gates.mjs';
 import { formatGuard, guardExitCode, inspectGuard } from '../lib/guard.mjs';
-import { parseReviewArtifact } from '../lib/review-artifact.mjs';
-import { createReviewPackets, formatReviewPacket } from '../lib/review-packet.mjs';
+import { CHORE_LANE_SENTINEL, parseReviewArtifact, parseReviewerList, renderReviewTemplate, reviewConvergence } from '../lib/review-artifact.mjs';
+import { createReviewPackets, formatReviewPacket, reviewerNamesFor } from '../lib/review-packet.mjs';
 import { formatResume, resumeExitCode, runResume } from '../lib/resume.mjs';
 import { inspectSnapshot } from '../lib/snapshot.mjs';
 
@@ -64,14 +64,16 @@ ${c('1', '@mlangroman/sdlc')} — ticket → plan → implement → land pipelin
 
 Usage:
   npx @mlangroman/sdlc setup [options]     Set up the pipeline in the current directory
+  sdlc config [--json] [--field <path>]     Print resolved project configuration
   sdlc actor [runtime] [--new]              Print a session-scoped Beads actor
   sdlc hash <file> [--rev <commit>]         Print the canonical full-file SHA-256
   sdlc doctor <NNN> [--json]                Validate pipeline and native Beads integrity
   sdlc snapshot --view=next|queue --json    Collect one deterministic read-only pipeline snapshot
-  sdlc guard <stage> <NNN>                  Validate one stage and print a terse result
+  sdlc guard <stage> <NNN> [--json]         Validate one stage and print a terse result
   sdlc resume <NNN> [--runtime <name>]      Adopt an abandoned plan epic under a fresh actor
   sdlc gates [--cwd <dir>] [--target <t>]   Run configured quality gates with bounded output
   sdlc review-packet <NNN> [options]         Build deterministic lane-scoped reviewer context
+  sdlc review-artifact [options]            Generate or validate one aggregate review artifact
   sdlc review <NNN> [options]               Prepare a plan worktree for local human review
 
 Options:
@@ -82,6 +84,10 @@ Options:
   --skip-skills    Do not install skills
   --skip-agents    Do not install bundled agents
   --skip-beads     Do not run bd init
+
+Config options:
+  --field <path>   Narrow output to one dotted-key setting (e.g. beads.mode)
+  --json           Emit the resolved configuration as JSON
 
 Review options:
   --editor         Open the configured review editor
@@ -101,14 +107,25 @@ Review-packet options:
   --head <revision>  Reviewed revision (default: HEAD)
   --json             Emit packet objects as compact JSON instead of Markdown
 
+Review-artifact options:
+  --template <NNN>   Emit the aggregate skeleton with doctor-known identity pre-filled
+  --round <n>        Review round for --template (required, positive integer)
+  --reviewers a,b,c  Override the derived reviewer set for --template
+  --base <revision>  Diff base used to derive reviewers (default: main)
+  --head <revision>  Reviewed revision (default: HEAD)
+  --validate <path>  Parse one artifact and report every failure with its line number
+  --json             Emit the validation result as JSON
+
 What setup does:
   1. git init (if not already a repository)
-  2. Creates thoughts/{${THOUGHTS_SUBDIRS.join(',')}} + compact instructions/docs index (+ CLAUDE.md symlink)
-  3. Creates a root AGENTS.md (if missing) and a root CLAUDE.md → AGENTS.md symlink
-  4. Installs pipeline skills into .agents/skills/ (symlinked into .claude/skills/ for Claude)
-  5. Installs four bundled read-only reviewer profiles into .claude/agents/ (Claude), .codex/agents/ (Codex), or .pi/agents/ (Pi with pi-subagents)
-  6. Verifies Beads >= 1.1.0 and initializes it (unless --skip-beads)
-  7. Installs/updates a minimal .beads/PRIME.md with no memory bodies
+  2. Installs .agents/sdlc.json (project configuration, never overwritten) plus its
+     generated JSON Schemas, and ignores the machine-scoped .agents/sdlc.local.json overlay
+  3. Creates thoughts/{${THOUGHTS_SUBDIRS.join(',')}} + compact instructions/docs index (+ CLAUDE.md symlink)
+  4. Creates a root AGENTS.md (if missing) and a root CLAUDE.md → AGENTS.md symlink
+  5. Installs pipeline skills into .agents/skills/ (symlinked into .claude/skills/ for Claude)
+  6. Installs four bundled read-only reviewer profiles into .claude/agents/ (Claude), .codex/agents/ (Codex), or .pi/agents/ (Pi with pi-subagents)
+  7. Verifies Beads >= 1.1.0 and initializes it (unless --skip-beads)
+  8. Installs/updates a minimal .beads/PRIME.md with no memory bodies
 
 Skills can also be installed on their own, for any supported agent, via the skills CLI:
   npx skills add MJLang/sdlc
@@ -125,24 +142,25 @@ function git(args, options = {}) {
   return commandOutput('git', args, options);
 }
 
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function substitute(value, variables) {
   return value.replace(/\{(worktree|port)\}/g, (_, key) => String(variables[key]));
+}
+
+// `thoughts/reviews/{NNN}-round{n}.md` — the one place this CLI spells the
+// convention, for both "the latest round" and "the round before this one".
+function reviewArtifactRound(file) {
+  const match = basename(file).match(/^(\d+)-round(\d+)\.md$/);
+  return match ? { number: match[1], round: Number(match[2]) } : undefined;
 }
 
 function latestReviewArtifact(worktree, number) {
   const reviewsDir = join(worktree, 'thoughts', 'reviews');
   if (!existsSync(reviewsDir)) return undefined;
   const matches = readdirSync(reviewsDir)
-    .filter((file) => new RegExp(`^${escapeRegex(number)}-round\\d+\\.md$`).test(file))
-    .sort((a, b) => {
-      const round = (file) => Number(file.match(/-round(\d+)\.md$/)?.[1] ?? 0);
-      return round(a) - round(b);
-    });
-  return matches.length ? join(reviewsDir, matches.at(-1)) : undefined;
+    .map((file) => ({ file, parsed: reviewArtifactRound(file) }))
+    .filter((entry) => entry.parsed?.number === number)
+    .sort((a, b) => a.parsed.round - b.parsed.round);
+  return matches.length ? join(reviewsDir, matches.at(-1).file) : undefined;
 }
 
 function verdictFrom(artifact) {
@@ -261,6 +279,45 @@ function hash() {
   }
 }
 
+// Scalars render bare; arrays and objects render as compact JSON, so a
+// dotted-key line stays exactly one line regardless of the value's shape.
+function formatSettingValue(value) {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function formatSetting(setting) {
+  return `${setting.key}=${formatSettingValue(setting.value)} (${setting.source})`;
+}
+
+function configCommand() {
+  const field = optionValue('--field');
+  if (args.includes('--field') && !field) {
+    console.error('Usage: sdlc config [--json] [--field <dotted.path>]');
+    process.exitCode = 1;
+    return;
+  }
+  const projectConfig = readProjectConfig(cwd);
+  if (projectConfig.errors.length) {
+    for (const error of projectConfig.errors) console.error(error);
+    process.exitCode = 1;
+    return;
+  }
+  const settings = effectiveSettings(projectConfig);
+  if (field) {
+    const setting = settings.find((entry) => entry.key === field);
+    if (!setting) {
+      console.error(`Unknown configuration field '${field}'. See docs/configuration.md for the supported keys.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(flags.has('--json') ? JSON.stringify({ value: setting.value, source: setting.source }) : formatSetting(setting));
+    return;
+  }
+  console.log(flags.has('--json') ? JSON.stringify(configProjection(projectConfig), null, 2) : settings.map(formatSetting).join('\n'));
+}
+
 function doctor() {
   const number = positionalAfter('doctor');
   if (!number || !/^\d+$/.test(number)) {
@@ -305,7 +362,7 @@ function guard() {
   }
   try {
     const result = inspectGuard(stage, number, { cwd });
-    console.log(formatGuard(result));
+    console.log(flags.has('--json') ? JSON.stringify(result, null, 2) : formatGuard(result));
     process.exitCode = guardExitCode(result);
   } catch (error) {
     console.error(`Guard failed: ${error.message}`);
@@ -368,6 +425,108 @@ function reviewPacket() {
     console.error(`Review packet failed: ${error.message}`);
     process.exitCode = 1;
   }
+}
+
+function reviewArtifactUsage() {
+  console.error('Usage: sdlc review-artifact --template <NNN> --round <n> [--reviewers a,b,c] [--base <revision>] [--head <revision>]');
+  console.error('       sdlc review-artifact --validate <path> [--json]');
+  process.exitCode = 1;
+}
+
+function reviewArtifact() {
+  const templateNumber = optionValue('--template');
+  const validatePath = optionValue('--validate');
+  if (Boolean(templateNumber) === Boolean(validatePath)) return reviewArtifactUsage();
+  if (templateNumber) return reviewArtifactTemplate(templateNumber);
+  return reviewArtifactValidate(validatePath);
+}
+
+function reviewArtifactTemplate(number) {
+  const round = optionValue('--round');
+  if (!/^\d+$/.test(number) || !round || !/^[1-9]\d*$/.test(round)) return reviewArtifactUsage();
+  const normalized = number.padStart(3, '0');
+  try {
+    const head = optionValue('--head') || 'HEAD';
+    const reviewedCodeSha = git(['rev-parse', '--verify', `${head}^{commit}`]);
+    if (!reviewedCodeSha) {
+      console.error(`Could not resolve a reviewed code HEAD from '${head}'.`);
+      process.exitCode = 1;
+      return;
+    }
+    // Identity comes from doctor so the template cannot disagree with the gate.
+    const diagnosis = inspectDoctor(normalized, { cwd });
+    const choreLane = !diagnosis.plan;
+    const approvedPlanSha256 = choreLane ? CHORE_LANE_SENTINEL : diagnosis.plan.sha256;
+    const approvedPlanCommit = choreLane ? CHORE_LANE_SENTINEL : diagnosis.plan.approvedCommit;
+    if (!approvedPlanSha256 || !approvedPlanCommit) {
+      console.error(`Approved plan identity for ${normalized} is unavailable (doctor state=${diagnosis.state}); the template will not invent it.`);
+      if (diagnosis.errors?.[0]) console.error(`  ${diagnosis.errors[0]}`);
+      process.exitCode = 1;
+      return;
+    }
+    const declared = optionValue('--reviewers');
+    const reviewers = declared
+      ? parseReviewerList(declared)
+      : reviewerNamesFor({ cwd, base: optionValue('--base') || 'main', head });
+    console.log(renderReviewTemplate({
+      number: normalized,
+      round: Number(round),
+      reviewedCodeSha,
+      approvedPlanSha256,
+      approvedPlanCommit,
+      reviewers,
+    }));
+  } catch (error) {
+    console.error(`Review template failed: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+// Round n reconciles against round n-1, so validation reads the sibling artifact
+// rather than trusting the round under test to describe its own history.
+function previousRoundArtifact(path) {
+  const parsed = reviewArtifactRound(path);
+  if (!parsed || parsed.round <= 1) return undefined;
+  const sibling = join(dirname(path), `${parsed.number}-round${parsed.round - 1}.md`);
+  return existsSync(sibling) ? parseReviewArtifact(readFileSync(sibling, 'utf8')) : undefined;
+}
+
+function reviewArtifactValidate(path) {
+  const absolute = resolve(cwd, path);
+  if (!existsSync(absolute)) {
+    console.error(`Review artifact not found: ${path}`);
+    process.exitCode = 1;
+    return;
+  }
+  const relativePath = relative(cwd, absolute).split(sep).join('/');
+  const displayPath = !relativePath || relativePath.startsWith('..') ? absolute : relativePath;
+  const previous = previousRoundArtifact(absolute);
+  const parsed = parseReviewArtifact(readFileSync(absolute, 'utf8'), { previous });
+  const convergence = reviewConvergence(previous, parsed);
+  if (flags.has('--json')) {
+    console.log(JSON.stringify({
+      path: displayPath,
+      valid: parsed.valid,
+      version: parsed.version,
+      number: parsed.number ?? null,
+      round: parsed.round ?? null,
+      verdict: parsed.verdict?.value ?? null,
+      reviewers: parsed.reviewers ?? [],
+      previousRound: previous ? previous.round ?? null : null,
+      convergence,
+      diagnostics: parsed.diagnostics,
+      warnings: parsed.warnings ?? [],
+    }, null, 2));
+  } else {
+    const lines = [`${displayPath}: ${parsed.valid ? 'valid' : 'invalid'} (${parsed.version}${parsed.round ? `, round ${parsed.round}` : ''})`];
+    if (parsed.verdict) lines.push(`verdict: ${parsed.verdict.value}`);
+    lines.push(`convergence: ${convergence.action}${convergence.reason ? ` (${convergence.reason})` : ''}`);
+    for (const warning of parsed.warnings ?? []) lines.push(`warning: ${warning}`);
+    // Every failure, each with its line — one pass fixes the whole artifact.
+    for (const diagnostic of parsed.diagnostics) lines.push(`${displayPath}:${diagnostic.line ?? '?'}: ${diagnostic.message}`);
+    console.log(lines.join('\n'));
+  }
+  process.exitCode = parsed.valid ? 0 : 1;
 }
 
 async function review() {
@@ -437,7 +596,7 @@ async function review() {
   const previewUrl = config.previewUrl;
 
   if (flags.has('--editor')) {
-    if (!editor) console.error('\nNo Review editor is configured in thoughts/AGENTS.md.');
+    if (!editor) console.error('\nNo local.reviewEditor is configured in .agents/sdlc.json or .agents/sdlc.local.json.');
     else {
       const command = substitute(editor, { worktree, port: '' });
       const result = spawnSync(command, { cwd: worktree, shell: true, stdio: 'inherit' });
@@ -457,7 +616,7 @@ async function review() {
 
   if (flags.has('--preview')) {
     if (!preview || !previewUrl) {
-      console.error('\nLocal preview is not configured. Add Local preview and Preview URL to thoughts/AGENTS.md.');
+      console.error('\nLocal preview is not configured. Set local.preview.command and local.preview.url in .agents/sdlc.json or .agents/sdlc.local.json.');
     } else {
       const portFlag = args.indexOf('--port');
       const requestedPort = portFlag >= 0 ? Number(args[portFlag + 1]) : 4173;
@@ -553,6 +712,34 @@ function installManagedFile(src, dest, label) {
   ok(existsSync(dest) ? `${label} installed/updated` : label);
 }
 
+// `.agents/sdlc.local.json` is machine-scoped and never committed. Creates
+// `.gitignore` when absent; otherwise appends the entry only when no
+// existing line already ignores the path (exact trimmed match against both
+// the bare and the `/`-prefixed forms), so reruns never duplicate it
+// (AC-008, AA-006). The two generated schema files are deliberately left out
+// - they are useful committed.
+function ensureLocalConfigIgnored(root) {
+  const entry = '.agents/sdlc.local.json';
+  const gitignorePath = join(root, '.gitignore');
+  if (!existsSync(gitignorePath)) {
+    writeFileSync(gitignorePath, `${entry}\n`);
+    ok('.gitignore (created, ignoring .agents/sdlc.local.json)');
+    return;
+  }
+  const contents = readFileSync(gitignorePath, 'utf8');
+  const alreadyIgnored = contents.split(/\r?\n/).some((line) => {
+    const trimmed = line.trim();
+    return trimmed === entry || trimmed === `/${entry}`;
+  });
+  if (alreadyIgnored) {
+    skip('.gitignore already ignores .agents/sdlc.local.json');
+    return;
+  }
+  const separator = contents.length && !contents.endsWith('\n') ? '\n' : '';
+  writeFileSync(gitignorePath, `${contents}${separator}${entry}\n`);
+  ok('.gitignore (added .agents/sdlc.local.json)');
+}
+
 function frontmatterValue(frontmatter, key) {
   const line = frontmatter.split(/\r?\n/).find((candidate) => candidate.startsWith(`${key}:`));
   if (!line) return undefined;
@@ -633,6 +820,14 @@ function renderPiAgent(source) {
 }
 
 function setup() {
+  const legacyLabels = detectLegacyConfigSection(cwd);
+  if (legacyLabels.length) {
+    console.error('\nCannot set up the pipeline: thoughts/AGENTS.md still carries a legacy "## Project Configuration" section.');
+    console.error(`  Move these settings to .agents/sdlc.json (see template/sdlc.template.json), then delete the section: ${legacyLabels.join(', ')}.`);
+    process.exitCode = 1;
+    return;
+  }
+
   let beadsInstallation;
   if (!flags.has('--skip-beads')) {
     beadsInstallation = inspectBeadsInstallation({ cwd });
@@ -655,6 +850,16 @@ function setup() {
     if (r.status === 0) ok('git init (the pipeline uses worktrees and branches)');
     else warn('git init failed — run it yourself; the pipeline requires git');
   }
+
+  head('.agents/');
+  mkdirSync(join(cwd, '.agents'), { recursive: true });
+  // `copyIfAbsent`, not `copyIfMissing`: a project's configuration is never
+  // overwritten, even under --force (AC-002, AC-012).
+  copyIfAbsent(join(pkgRoot, 'template', 'sdlc.template.json'), join(cwd, '.agents', 'sdlc.json'), '.agents/sdlc.json (project configuration)');
+  // These two are generated, never user-owned, so they always refresh.
+  installManagedFile(join(pkgRoot, 'template', 'sdlc.schema.json'), join(cwd, '.agents', 'sdlc.schema.json'), '.agents/sdlc.schema.json (generated JSON Schema)');
+  installManagedFile(join(pkgRoot, 'template', 'sdlc.local.schema.json'), join(cwd, '.agents', 'sdlc.local.schema.json'), '.agents/sdlc.local.schema.json (generated JSON Schema)');
+  ensureLocalConfigIgnored(cwd);
 
   head('thoughts/');
   for (const d of THOUGHTS_SUBDIRS) {
@@ -789,8 +994,8 @@ function setup() {
 
   console.log(`
 ${c('1', 'Done. Next steps:')}
-  1. Edit the ${c('1', 'Project Configuration')} section in thoughts/AGENTS.md
-     (targets, quality gates, reviewers, product docs)
+  1. Edit ${c('1', '.agents/sdlc.json')} (targets, quality gates, reviewers, product docs;
+     see docs/configuration.md, or run ${c('1', 'sdlc config')})
   2. Drop your product/context docs into thoughts/docs/
   3. In your agent: ${c('1', '/sdlc-ticket <your first idea>')}
 
@@ -800,6 +1005,7 @@ Dashboard: /sdlc-queue    Autonomous: /loop /sdlc-next    Small fixes: /sdlc-cho
 }
 
 if (command === 'setup') setup();
+else if (command === 'config') configCommand();
 else if (command === 'actor') actor();
 else if (command === 'hash') hash();
 else if (command === 'doctor') doctor();
@@ -808,5 +1014,6 @@ else if (command === 'guard') guard();
 else if (command === 'resume') resume();
 else if (command === 'gates') await gates();
 else if (command === 'review-packet') reviewPacket();
+else if (command === 'review-artifact') reviewArtifact();
 else if (command === 'review') await review();
 else help();
